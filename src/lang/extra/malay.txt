@@ -1,0 +1,95 @@
+STR_UNIT_NAME_VELOCITY_IMPERIAL                                 :bp/j
+STR_UNIT_NAME_VELOCITY_METRIC                                   :km/j
+STR_UNIT_NAME_VELOCITY_SI                                       :m/s
+
+STR_BUTTON_RENAME                                               :{BLACK}Tukar Nama
+
+STR_VEHICLE_TYPE_TRAINS                                         :Keretapi
+STR_VEHICLE_TYPE_ROAD_VEHICLES                                  :Kenderaan Jalanraya
+STR_VEHICLE_TYPE_SHIPS                                          :Kapal
+STR_VEHICLE_TYPE_AIRCRAFT                                       :Pesawat
+
+STR_CONFIG_SETTING_AUTOSAVE                                     :Simpanan automatik:{STRING}
+STR_CONFIG_SETTING_AUTOSAVE_HELPTEXT                            :Pilih jarak waktu antara menyimpankan permainan automatik
+
+STR_CONFIG_SETTING_TIMETABLE_IN_TICKS                           :Tunjukkan jadual menggunakan tanda rait dan bukan hari: {STRING}
+
+STR_TRANSPARENT_LOADING_TOOLTIP                                 :{BLACK}Teluskan penunjuk muatan atau tidak. Ctrl+Klik untuk mengunci
+
+# Tracerestrict GUI
+
+# Programmable Pre-Signals
+
+#Town select window (for SE only)
+
+STR_MAPGEN_SNOW_LINE_HEIGHT                                     :{BLACK}Paras ketinggian garis salji:
+STR_MAPGEN_SNOW_LINE_UP                                         :{BLACK}Tinggikan paras garis salji satu petak
+STR_MAPGEN_SNOW_LINE_DOWN                                       :{BLACK}Rendahkan paras garis salji satu petak
+STR_MAPGEN_SNOW_LINE_QUERY_CAPT                                 :{WHITE}Tukarkan paras garis salji
+
+# Town tooltip
+
+STR_PURCHASE_INFO_DESIGNED                                      :{BLACK}Direka: {GOLD}{NUM}
+
+STR_VEHICLE_STATUS_TRAIN_STOPPING_VEL_END                       :{RED}Sedang berhenti, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_STATION_VEL_END                  :{LTBLUE}Menuju ke {STATION}, {VELOCITY}
+STR_VEHICLE_STATUS_NO_ORDERS_VEL_END                            :{LTBLUE}Tiada perintah, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_WAYPOINT_VEL_END                 :{LTBLUE}Bergerak ke arah {WAYPOINT}, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_DEPOT_VEL_END                    :{ORANGE}Menuju ke {DEPOT}, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_DEPOT_SERVICE_VEL_END            :{LTBLUE}Servis di {DEPOT}, {VELOCITY}
+
+STR_ORDERS_GO_TO_TOOLTIP_EXTRA                                  :{BLACK}Masukkan arahan baru ke dalam susunan senarai yang terpilih, atau tambah pada penghujung senarai. "Ctrl" mengubah arahan stesen kepada 'muatan penuh untuk apa-apa kargo', arahan halutuju 'tanpa henti', dan arahan depoh 'penyenggelaraan'. 'Arahan berkongsi' atau "Ctrl" membenarkan kenderaan ini berkongsi arahan dengan kenderaan terpilih
+
+STR_TIMETABLE_ARRIVAL_ABBREVIATION                              :T:{SPACE}{SPACE}
+STR_TIMETABLE_DEPARTURE_ABBREVIATION                            :B:{SPACE}{SPACE}
+
+# Cargo type orders Window
+
+# Plans window
+
+# Clear area query
+
+# Plan related errors
+
+STR_TRADITIONAL_TRAIN_NAME                                      :Keretapi {COMMA}
+STR_TRADITIONAL_ROAD_VEHICLE_NAME                               :Kenderaan {COMMA}
+STR_TRADITIONAL_SHIP_NAME                                       :Kapal {COMMA}
+STR_TRADITIONAL_AIRCRAFT_NAME                                   :Pesawat {COMMA}
+
+# Scheduled Dispatch
+
+# Modifier key toggle window
+
+STR_CONFIG_SETTING_ALLOW_SHARES                                 :Benarkan membeli saham syarikat lain: {STRING}
+
+STR_COMPANY_VIEW_SHARES_OWNED_BY                                :{WHITE}({COMMA}% dimiliki oleh {COMPANY})
+
+STR_COMPANY_VIEW_BUY_SHARE_BUTTON                               :{BLACK}Beli 25% saham dalam syarikat ini
+STR_COMPANY_VIEW_SELL_SHARE_BUTTON                              :{BLACK}Jual 25% saham dalam syarikat ini
+STR_COMPANY_VIEW_BUY_SHARE_TOOLTIP                              :{BLACK}Beli 25% saham dalam syarikat ini. Shift+Klik menunjukkan anggaran kos tanpa membeli saham
+STR_COMPANY_VIEW_SELL_SHARE_TOOLTIP                             :{BLACK}Jual 25% saham dalam syarikat ini. Shift+Klik menunjukkan anggaran kos tanpa menjual saham
+
+STR_ERROR_CAN_T_BUY_25_SHARE_IN_THIS                            :{WHITE}Tidak boleh beli 25% saham dalam syarikat ini...
+STR_ERROR_CAN_T_SELL_25_SHARE_IN                                :{WHITE}Tidak boleh jual 25% saham dalam syarikat ini...
+STR_ERROR_PROTECTED                                             :{WHITE}Syarikat ini tidak cukup berusia untuk berpasaran saham...
+
+STR_CONFIG_SETTING_CYCLE_SIGNAL_PBS                             :Isyarat laluan sahaja
+
+STR_NETWORK_NEED_COMPANY_PASSWORD_CAPTION                       :{WHITE}Syarikat ini dilindungi. Masukkan kata laluan
+
+# Network set password
+STR_COMPANY_PASSWORD_CANCEL                                     :{BLACK}Jangan simpan kata laluan ini
+STR_COMPANY_PASSWORD_OK                                         :{BLACK}Berikan syarikat kata laluan yang baru
+STR_COMPANY_PASSWORD_CAPTION                                    :{WHITE}Kata laluan syarikat
+STR_COMPANY_PASSWORD_MAKE_DEFAULT                               :{BLACK}Kata laluan syarikat yang lazim
+STR_COMPANY_PASSWORD_MAKE_DEFAULT_TOOLTIP                       :{BLACK}Gunakan kata laluan syarikat ini sebagai yang lazim untuk syarikat baru
+
+STR_COMPANY_VIEW_PASSWORD                                       :{BLACK}Kata laluan
+STR_COMPANY_VIEW_PASSWORD_TOOLTIP                               :{BLACK}Lindungi syarikat anda dengan kata laluan untuk mengelak daripada penyertaan pengguna tanpa izin.
+STR_COMPANY_VIEW_SET_PASSWORD                                   :{BLACK}Tetapkan kata laluan syarikat
+
+# JSON messages
+
+STR_INTRO_NEWGRF_SETTINGS                                       :{BLACK}Tetapan NewGRF
+STR_INTRO_TOOLTIP_NEWGRF_SETTINGS                               :{BLACK}Paparkan tetapan NewGRF
+STR_INTRO_CAPTION_TRADITIONAL                                   :{WHITE}OpenTTD {REV}

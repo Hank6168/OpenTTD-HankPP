@@ -1,0 +1,115 @@
+STR_UNIT_NAME_VELOCITY_IMPERIAL                                 :miili tunnis
+STR_UNIT_NAME_VELOCITY_METRIC                                   :km/h
+STR_UNIT_NAME_VELOCITY_SI                                       :m/s
+STR_UNIT_NAME_VELOCITY_GAMEUNITS                                :ruutu/päev
+STR_UNIT_NAME_VELOCITY_GAMEUNITS_WALLCLOCK                      :ruutu/sek
+
+STR_BUTTON_RENAME                                               :{BLACK}Nimevahetus
+
+STR_VEHICLE_TYPE_TRAINS                                         :Rongid
+STR_VEHICLE_TYPE_ROAD_VEHICLES                                  :Mootorsõidukid
+STR_VEHICLE_TYPE_SHIPS                                          :Laevad
+STR_VEHICLE_TYPE_AIRCRAFT                                       :Õhusõidukid
+
+STR_CONFIG_SETTING_AUTOSAVE                                     :Salvestusväłp: {STRING}
+STR_CONFIG_SETTING_AUTOSAVE_HELPTEXT                            :Vali välpsalvestuste vaheline ajavahemik
+
+STR_CONFIG_SETTING_TIMETABLE_IN_TICKS                           :Graafik on sammudes, mitte päevades: {STRING}
+STR_CONFIG_SETTING_TIMETABLE_IN_TICKS_HELPTEXT                  :Graafikus on ajad märgitud mitte päevades, vaid sammudes
+
+STR_TRANSPARENT_LOADING_TOOLTIP                                 :{BLACK}Vaheta laadimisnäidikute läbipaistvust. Ctrl+klõps lukustab
+
+STR_BUILD_SIGNAL_TOGGLE_ADVANCED_SIGNAL_TOOLTIP                 :{BLACK}Vahelda täiustatud signaalitüüpide näitamist
+
+# Tracerestrict GUI
+
+# Programmable Pre-Signals
+
+#Town select window (for SE only)
+
+STR_MAPGEN_SNOW_LINE_HEIGHT                                     :{BLACK}Lumepiiri kõrgus:
+STR_MAPGEN_SNOW_LINE_UP                                         :{BLACK}Lumepiiri liigutamine ühe võrra üles
+STR_MAPGEN_SNOW_LINE_DOWN                                       :{BLACK}Lumepiiri liigutamine ühe võrra alla
+STR_MAPGEN_SNOW_LINE_QUERY_CAPT                                 :{WHITE}Muuda lumepiiri kõrgust
+
+# Town tooltip
+
+STR_PURCHASE_INFO_DESIGNED                                      :{BLACK}Kujundatud: {GOLD}{NUM}
+
+STR_VEHICLE_STATUS_TRAIN_STOPPING_VEL_END                       :{RED}Peatub, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_STATION_VEL_END                  :{LTBLUE}Siht: {STATION}, {VELOCITY}
+STR_VEHICLE_STATUS_NO_ORDERS_VEL_END                            :{LTBLUE}Sihitu, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_WAYPOINT_VEL_END                 :{LTBLUE}Suundub {WAYPOINT}, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_DEPOT_VEL_END                    :{ORANGE}Suundub {DEPOT}, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_DEPOT_SERVICE_VEL_END            :{LTBLUE}Järelevaatus: {DEPOT}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_STATION_VEL_END                 :{LTBLUE}Ei leita teed jaama {STATION}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_WAYPOINT_VEL_END                :{LTBLUE}Ei leita teed sihtkohta {WAYPOINT}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_DEPOT_VEL_END                   :{ORANGE}Ei leita teed sihtkohta {DEPOT}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_DEPOT_SERVICE_VEL_END           :{LTBLUE}Ei leia teed sihtkohta {DEPOT}, {VELOCITY}
+
+STR_ORDERS_GO_TO_TOOLTIP_EXTRA                                  :{BLACK}Lisa uus korraldus valitud korralduse ette, või nimekirja lõppu. «Ctrl» annab jaamas korralduse «täislaadida üks veos», meldepunktis korralduse «peatuseta», ning depoos korralduse «hooldus». «Korralduste jagamine» või «Ctrl» laseb sellel sõidukil jagada korraldusi valitud sõidukiga. Sõidukil klõpsates dubleeritakse selle korraldused. Depookorralduste olemasolul sõiduk ise hoolduses ei käi
+
+STR_TIMETABLE_ARRIVAL_ABBREVIATION                              :S:{SPACE}{SPACE}
+STR_TIMETABLE_DEPARTURE_ABBREVIATION                            :V:{SPACE}{SPACE}
+
+# Cargo type orders Window
+
+# Plans window
+
+# Clear area query
+
+# Plan related errors
+
+STR_TRADITIONAL_TRAIN_NAME                                      :Rong {COMMA}
+STR_TRADITIONAL_ROAD_VEHICLE_NAME                               :Mootorsõiduk {COMMA}
+STR_TRADITIONAL_SHIP_NAME                                       :Laev {COMMA}
+STR_TRADITIONAL_AIRCRAFT_NAME                                   :Õhusõiduk {COMMA}
+
+# Scheduled Dispatch
+
+# Modifier key toggle window
+
+STR_CONFIG_SETTING_ALLOW_SHARES                                 :Aktsiatehingud teiste ettevõtetega: {STRING}
+STR_CONFIG_SETTING_ALLOW_SHARES_HELPTEXT                        :Kui on aktiveeritud siis on ettevõtte aktsiate ostmine ja müümine lubatud. Aktsiad on saadaval ainult ettevõtetel mille vanus on üle teatud piiri
+
+STR_CONFIG_SETTING_MIN_YEARS_FOR_SHARES                         :Ettevõtte vanuse alampiir aktsiakauplemiseks: {STRING}
+STR_CONFIG_SETTING_MIN_YEARS_FOR_SHARES_HELPTEXT                :Määra alampiir ettevõtte vanusele, enne kui teised saavad selle aktsiaid osta ja müüa.
+
+STR_COMPANY_VIEW_SHARES_OWNED_BY                                :{WHITE}({COMMA}% on ettevõtte {COMPANY} käes)
+
+STR_COMPANY_VIEW_BUY_SHARE_BUTTON                               :{BLACK}Osta 25% ettevõtte aktsiatest
+STR_COMPANY_VIEW_SELL_SHARE_BUTTON                              :{BLACK}Müü 25% ettevõtte aktsiatest
+STR_COMPANY_VIEW_BUY_SHARE_TOOLTIP                              :{BLACK}Osta 25% ettevõtte aktsiatest. Shift+klõpsuga kuvatakse aktsiate hind tehingut tegemata
+STR_COMPANY_VIEW_SELL_SHARE_TOOLTIP                             :{BLACK}Müü 25% ettevõtte aktsiatest. Shift+klõpsuga kuvatakse aktsiate hind tehingut tegemata
+
+STR_ERROR_CAN_T_BUY_25_SHARE_IN_THIS                            :{WHITE}Selle ettevõtte aktsiatest ei saa 25% osta...
+STR_ERROR_CAN_T_SELL_25_SHARE_IN                                :{WHITE}Selle ettevõtte aktsiatest ei saa 25% müüa...
+STR_ERROR_PROTECTED                                             :{WHITE}See ettevõtte pole veel piisavalt vana, et aktsiaid vahetada...
+
+STR_CONFIG_SETTING_CYCLE_SIGNAL_PBS                             :Ainult täiustatud
+
+STR_WARNING_PASSWORD_SECURITY                                   :{YELLOW}Hoiatus: Serveriadministraatorid võivad olla võimelised lugema siinset teksti.
+STR_NETWORK_NEED_COMPANY_PASSWORD_CAPTION                       :{WHITE}Ettevõte on kaitstud. Sisesta salasõna
+STR_NETWORK_CLIENT_LIST_ADMIN_COMPANY_UNLOCK                    :Salasõnaga avamine
+STR_NETWORK_CLIENT_LIST_ASK_COMPANY_UNLOCK                      :{YELLOW}Kas oled kindel, et soovid nullida ettevõtte '{COMPANY}' salasõna?
+
+# Network set password
+STR_COMPANY_PASSWORD_CANCEL                                     :{BLACK}Sisestatud salasõna ei salvestata
+STR_COMPANY_PASSWORD_OK                                         :{BLACK}Määra ettevõtte uus salasõna
+STR_COMPANY_PASSWORD_CAPTION                                    :{WHITE}Ettevõtte salasõna
+STR_COMPANY_PASSWORD_MAKE_DEFAULT                               :{BLACK}Esialgne ettevõtte salasõna
+STR_COMPANY_PASSWORD_MAKE_DEFAULT_TOOLTIP                       :{BLACK}Määra ettevõtte salasõna uute ettevõtete esialgseks salasõnaks
+
+STR_COMPANY_VIEW_PASSWORD                                       :{BLACK}Salasõna
+STR_COMPANY_VIEW_PASSWORD_TOOLTIP                               :{BLACK}Ettevõtte kaitsmine salasõnaga, et võõrad ei saaks ilma loata ühineda
+STR_COMPANY_VIEW_SET_PASSWORD                                   :{BLACK}Vali ettevõttele salasõna
+
+# JSON messages
+
+STR_INTRO_NEWGRF_SETTINGS                                       :{BLACK}NewGRF-i seadistus
+STR_INTRO_AI_SETTINGS                                           :{BLACK}TI Seaded
+STR_INTRO_GAMESCRIPT_SETTINGS                                   :{BLACK}GameScript'i seaded
+STR_INTRO_TOOLTIP_NEWGRF_SETTINGS                               :{BLACK}Ava NewGRF-i seadistus
+STR_INTRO_TOOLTIP_AI_SETTINGS                                   :{BLACK}Ava TI-seaded
+STR_INTRO_TOOLTIP_GAMESCRIPT_SETTINGS                           :{BLACK}Ava GameScript'i seaded
+STR_INTRO_CAPTION_TRADITIONAL                                   :{WHITE}OpenTTD {REV}

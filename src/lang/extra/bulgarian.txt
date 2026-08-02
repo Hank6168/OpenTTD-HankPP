@@ -1,0 +1,105 @@
+STR_BUTTON_RENAME                                               :{BLACK}Преименувай
+
+STR_VEHICLE_TYPE_TRAINS                                         :Влакове
+STR_VEHICLE_TYPE_ROAD_VEHICLES                                  :Камиони/Автобуси
+STR_VEHICLE_TYPE_SHIPS                                          :Кораби
+STR_VEHICLE_TYPE_AIRCRAFT                                       :Самолети
+
+STR_CONFIG_SETTING_AUTOSAVE                                     :Автоматично запазване: {STRING}
+STR_CONFIG_SETTING_AUTOSAVE_HELPTEXT                            :Изберете интервал между автоматично запаметяване на играта
+
+STR_CONFIG_SETTING_TIMETABLE_IN_TICKS                           :Разписанието в цикли вместо дни: {STRING.n}
+STR_CONFIG_SETTING_TIMETABLE_IN_TICKS_HELPTEXT                  :Показва времената за придвижване в таблиците в игрови единици, вместо в дни
+
+STR_TRANSPARENT_LOADING_TOOLTIP                                 :{BLACK}Вклучи прозрачност за товарещи указатели. Ctrl+Click за заключване
+
+STR_BUILD_SIGNAL_TOGGLE_ADVANCED_SIGNAL_TOOLTIP                 :{BLACK}Превключване на показването на разширени типове сигнали
+
+# Tracerestrict GUI
+
+# Programmable Pre-Signals
+
+#Town select window (for SE only)
+
+STR_MAPGEN_SNOW_LINE_HEIGHT                                     :{BLACK}Снежна линия:
+STR_MAPGEN_SNOW_LINE_UP                                         :{BLACK}Преместване снежната линия нагоре
+STR_MAPGEN_SNOW_LINE_DOWN                                       :{BLACK}Преместване снежната линия надолу
+STR_MAPGEN_SNOW_LINE_QUERY_CAPT                                 :{WHITE}Височина на снежната линия
+
+# Town tooltip
+
+STR_PURCHASE_INFO_DESIGNED                                      :{BLACK}Модел: {GOLD}{NUM}
+
+STR_VEHICLE_STATUS_TRAIN_STOPPING_VEL_END                       :{RED}Спира, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_STATION_VEL_END                  :{LTBLUE}Отиващ към {STATION}, {VELOCITY}
+STR_VEHICLE_STATUS_NO_ORDERS_VEL_END                            :{LTBLUE}Без заповеди, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_WAYPOINT_VEL_END                 :{LTBLUE}Отиващ към {WAYPOINT}, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_DEPOT_VEL_END                    :{ORANGE}Отправя се към {DEPOT}, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_DEPOT_SERVICE_VEL_END            :{LTBLUE}Сервиз в {DEPOT}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_STATION_VEL_END                 :{LTBLUE}Не може да достигне {STATION}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_WAYPOINT_VEL_END                :{LTBLUE}Не може да достигне {WAYPOINT}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_DEPOT_VEL_END                   :{ORANGE}Не може да достигне {DEPOT}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_DEPOT_SERVICE_VEL_END           :{LTBLUE}Не може да достигне {DEPOT}, {VELOCITY}
+
+STR_ORDERS_GO_TO_TOOLTIP_EXTRA                                  :{BLACK}Добавяне на назначение преди избраната или в края на списъка. Ctrl добавя назначение за 'Напълно натовари какъвто и да е товар', назначение за пътна точка 'без спиране' и назначение за депо 'обслужване'. 'Споделяне на назначенията' или Ctrl позволява на това превозно средство да сподели назначенията с друго избрано такова, когато се кликне върху него. Назначението за депо спира автоматичното обслужване на превозното средство
+
+STR_TIMETABLE_ARRIVAL_ABBREVIATION                              :П:{SPACE}{SPACE}
+STR_TIMETABLE_DEPARTURE_ABBREVIATION                            :З:{SPACE}{SPACE}
+
+# Cargo type orders Window
+
+# Plans window
+
+# Clear area query
+
+# Plan related errors
+
+STR_TRADITIONAL_TRAIN_NAME                                      :Влак {COMMA}
+STR_TRADITIONAL_ROAD_VEHICLE_NAME                               :Автомобил {COMMA}
+STR_TRADITIONAL_SHIP_NAME                                       :Кораб {COMMA}
+STR_TRADITIONAL_AIRCRAFT_NAME                                   :Самолет {COMMA}
+
+# Scheduled Dispatch
+
+# Modifier key toggle window
+
+STR_CONFIG_SETTING_ALLOW_SHARES                                 :Разреши купуване на акции от други компании: {STRING}
+STR_CONFIG_SETTING_ALLOW_SHARES_HELPTEXT                        :Ако тази опция бъде активирана, ще можете да купувате и продавате дялове на компании. Това ще бъде възможно единствено когато дадената компания достигне определена възраст
+
+STR_COMPANY_VIEW_SHARES_OWNED_BY                                :{WHITE}({COMMA}% е притежание на {COMPANY})
+
+STR_COMPANY_VIEW_BUY_SHARE_BUTTON                               :{BLACK}Купи 25% от акциите на компанията
+STR_COMPANY_VIEW_SELL_SHARE_BUTTON                              :{BLACK}Продай 25% от акциите на компанията
+STR_COMPANY_VIEW_BUY_SHARE_TOOLTIP                              :{BLACK}Купи 25% от акциите на тази компания. Shift показва цената на 25% от акциите
+STR_COMPANY_VIEW_SELL_SHARE_TOOLTIP                             :{BLACK}Продай 25% от акциите на тази компания. Shift показва цената на 25% от акциите
+
+STR_ERROR_CAN_T_BUY_25_SHARE_IN_THIS                            :{WHITE}Не може да купиш 25% от акциите на тази компания...
+STR_ERROR_CAN_T_SELL_25_SHARE_IN                                :{WHITE}Не може да продадеш 25% от акциите на тази компания...
+STR_ERROR_PROTECTED                                             :{WHITE}Тази компания все още не е достатъчно стара да предлага акции...
+
+STR_CONFIG_SETTING_CYCLE_SIGNAL_PBS                             :Само напреднат
+
+STR_WARNING_PASSWORD_SECURITY                                   :{YELLOW}Внимание: Администраторите на сървъра могат да прочетат всеки текст, въведен тук.
+STR_NETWORK_NEED_COMPANY_PASSWORD_CAPTION                       :{WHITE}Компанията е защитена. Въведете парола
+STR_NETWORK_CLIENT_LIST_ADMIN_COMPANY_UNLOCK                    :Отключване на парола
+
+# Network set password
+STR_COMPANY_PASSWORD_CANCEL                                     :{BLACK}Незапазвай паролата
+STR_COMPANY_PASSWORD_OK                                         :{BLACK}Дай на компанията новата парола
+STR_COMPANY_PASSWORD_CAPTION                                    :{WHITE}Парола на компанията
+STR_COMPANY_PASSWORD_MAKE_DEFAULT                               :{BLACK}Парола по подразбиране за компания
+STR_COMPANY_PASSWORD_MAKE_DEFAULT_TOOLTIP                       :{BLACK}Използване на тази парола по подразбиране за нови компании
+
+STR_COMPANY_VIEW_PASSWORD                                       :{BLACK}Парола
+STR_COMPANY_VIEW_PASSWORD_TOOLTIP                               :{BLACK}Постави парола за да предпазиш компанията си от неоторизирани потребители.
+STR_COMPANY_VIEW_SET_PASSWORD                                   :{BLACK}Поставяне парола на компанията
+
+# JSON messages
+
+STR_INTRO_NEWGRF_SETTINGS                                       :{BLACK}NewGRF настройки
+STR_INTRO_AI_SETTINGS                                           :{BLACK}Настройки на ИИ
+STR_INTRO_GAMESCRIPT_SETTINGS                                   :{BLACK}Игрови скрипт
+STR_INTRO_TOOLTIP_NEWGRF_SETTINGS                               :{BLACK}Отваряне на NewGRF настройки
+STR_INTRO_TOOLTIP_AI_SETTINGS                                   :{BLACK}Отворете ИИ настройки
+STR_INTRO_TOOLTIP_GAMESCRIPT_SETTINGS                           :{BLACK}Отворете настройките на игровия скрипт
+STR_INTRO_CAPTION_TRADITIONAL                                   :{WHITE}OpenTTD {REV}

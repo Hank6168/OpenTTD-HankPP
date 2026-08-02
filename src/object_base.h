@@ -1,0 +1,102 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file object_base.h Base for all objects. */
+
+#ifndef OBJECT_BASE_H
+#define OBJECT_BASE_H
+
+#include "core/pool_type.hpp"
+#include "gfx_type.h"
+#include "object_type.h"
+#include "tilearea_type.h"
+#include "town_type.h"
+#include "date_type.h"
+#include <vector>
+
+using ObjectPool = Pool<Object, ObjectID, 64>;
+extern ObjectPool _object_pool;
+
+/** An object, such as transmitter, on the map. */
+struct Object : ObjectPool::PoolItem<&_object_pool> {
+	ObjectType type = INVALID_OBJECT_TYPE; ///< Type of the object
+	Town *town = nullptr;                  ///< Town the object is built in
+	TileArea location{INVALID_TILE, 0, 0}; ///< Location of the object
+	CalTime::Date build_date{};            ///< Date of construction
+	uint8_t recolour_offset = 0;           ///< Recolour offset of the object (basically the 2CC colour offset), for display purpose.
+	uint8_t view = 0;                      ///< The view setting for this object
+
+	/** Make sure the object isn't zeroed. */
+	Object(ObjectID index) : PoolItemBase(index) {}
+	Object(ObjectID index, ObjectType type, Town *town, TileArea location, CalTime::Date build_date, uint8_t view) :
+		PoolItemBase(index), type(type), town(town), location(location), build_date(build_date), view(view) {}
+	/** Make sure the right destructor is called as well! */
+	~Object() {}
+
+	static Object *GetByTile(TileIndex tile);
+
+	/**
+	 * Increment the count of objects for this type.
+	 * @param type ObjectType to increment
+	 * @pre type < NUM_OBJECTS
+	 */
+	static inline void IncTypeCount(ObjectType type)
+	{
+		dbg_assert(type < NUM_OBJECTS);
+		if (type >= counts.size()) Object::counts.resize(type + 1);
+		Object::counts[type]++;
+	}
+
+	/**
+	 * Decrement the count of objects for this type.
+	 * @param type ObjectType to decrement
+	 * @pre type < NUM_OBJECTS
+	 */
+	static inline void DecTypeCount(ObjectType type)
+	{
+		dbg_assert(type < NUM_OBJECTS);
+		dbg_assert(type < Object::counts.size());
+		Object::counts[type]--;
+	}
+
+	/**
+	 * Get the count of objects for this type.
+	 * @param type ObjectType to query
+	 * @pre type < NUM_OBJECTS
+	 * @return The number of objects of the given type.
+	 */
+	static inline uint16_t GetTypeCount(ObjectType type)
+	{
+		dbg_assert(type < NUM_OBJECTS);
+		if (type >= Object::counts.size()) return 0;
+		return Object::counts[type];
+	}
+
+	/** Resets object counts. */
+	static inline void ResetTypeCounts()
+	{
+		counts.clear();
+	}
+
+protected:
+	static std::vector<uint16_t> counts; ///< Number of objects per type ingame
+};
+
+/**
+ * Keeps track of removed objects during execution/testruns of commands.
+ */
+struct ClearedObjectArea {
+	TileIndex first_tile;  ///< The first tile being cleared, which then causes the whole object to be cleared.
+	TileArea area;         ///< The area of the object.
+};
+
+ClearedObjectArea *FindClearedObject(TileIndex tile);
+extern std::vector<ClearedObjectArea> _cleared_object_areas;
+
+bool WouldObjectLeaveWaterBehind(TileIndex tile);
+
+#endif /* OBJECT_BASE_H */

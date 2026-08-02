@@ -1,0 +1,24 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file depot_type.h Header files for depots (not hangars). */
+
+#ifndef DEPOT_TYPE_H
+#define DEPOT_TYPE_H
+
+#include "core/pool_id_type.hpp"
+
+struct DepotIDTag : public PoolIDTraits<uint16_t, 64000, 0xFFFF> {};
+using DepotID = PoolID<DepotIDTag>; ///< Type for the unique identifier of depots.
+struct Depot;
+
+static const uint MAX_LENGTH_DEPOT_NAME_CHARS = 128; ///< The maximum length of a depot name in characters including '\0'
+
+/** Minimal height for a bridge above any depot tile. */
+static constexpr uint8_t MINIMAL_DEPOT_BRIDGE_HEIGHT = 3;
+
+#endif /* DEPOT_TYPE_H */

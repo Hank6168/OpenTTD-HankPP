@@ -1,0 +1,207 @@
+diff --git a/src/land_value.cpp b/src/land_value.cpp
+index f64b09d..57aca2e 100644
+--- a/src/land_value.cpp
++++ b/src/land_value.cpp
+@@ -10,6 +10,7 @@
+ #include "stdafx.h"
+ 
+ #include "land_value.h"
++#include "town.h"
+ 
+ #include "safeguards.h"
+ 
+@@ -93,3 +94,25 @@ LandValueScore GetFinalLandValueScore(TileIndex tile)
+ {
+ 	return CombineLandValueScoreAndModifier(GetLandValueScore(tile), GetLandValueModifier(tile));
+ }
++
++/** Initialize a town's persistent land-value score to the neutral base value. */
++void InitializeTownLandValue(Town *town)
++{
++	assert(town != nullptr);
++	town->land_value_score = LAND_VALUE_BASE.base();
++}
++
++/**
++ * Initialize land values missing from an older savegame, or validate values loaded from a current savegame.
++ * Valid stored values are preserved exactly.
++ */
++void InitializeLoadedTownLandValues(bool has_saved_land_value)
++{
++	for (Town *town : Town::Iterate()) {
++		if (has_saved_land_value) {
++			town->land_value_score = ClampLandValueScore(town->land_value_score).base();
++		} else {
++			InitializeTownLandValue(town);
++		}
++	}
++}
+diff --git a/src/land_value.h b/src/land_value.h
+index 9754e69..a250bdd 100644
+--- a/src/land_value.h
++++ b/src/land_value.h
+@@ -15,6 +15,8 @@
+ 
+ #include <limits>
+ 
++struct Town;
++
+ LandValueScore ClampLandValueScore(uint64_t score);
+ LandValueModifier ClampLandValueModifier(uint64_t modifier);
+ 
+@@ -28,4 +30,7 @@ LandValueScore GetLandValueScore(TileIndex tile);
+ LandValueModifier GetLandValueModifier(TileIndex tile);
+ LandValueScore GetFinalLandValueScore(TileIndex tile);
+ 
++void InitializeTownLandValue(Town *town);
++void InitializeLoadedTownLandValues(bool has_saved_land_value);
++
+ #endif /* LAND_VALUE_H */
+diff --git a/src/saveload/afterload.cpp b/src/saveload/afterload.cpp
+index c3b5bf0..2836521 100644
+--- a/src/saveload/afterload.cpp
++++ b/src/saveload/afterload.cpp
+@@ -46,6 +46,7 @@
+ #include "../script/script_gui.h"
+ #include "../game/game.hpp"
+ #include "../town.h"
++#include "../land_value.h"
+ #include "../economy_base.h"
+ #include "../animated_tile_func.h"
+ #include "../subsidy_base.h"
+@@ -1982,6 +1983,7 @@ bool AfterLoadGame()
+ 
+ 	/* Check and update house and town values */
+ 	UpdateHousesAndTowns(gcf_res != GRFListCompatibility::AllGood);
++	InitializeLoadedTownLandValues(SlXvIsFeaturePresent(XSLFI_LAND_VALUE));
+ 
+ 	if (IsSavegameVersionBefore(SLV_43)) {
+ 		for (TileIndex t(0); t < map_size; t++) {
+diff --git a/src/sl/extended_ver_sl.cpp b/src/sl/extended_ver_sl.cpp
+index 50a5a90..118452a 100644
+--- a/src/sl/extended_ver_sl.cpp
++++ b/src/sl/extended_ver_sl.cpp
+@@ -228,6 +228,7 @@ const std::initializer_list<SlxiSubChunkInfo> _sl_xv_sub_chunk_infos = {
+ 	{ XSLFI_ENGINE_MULTI_RAILTYPE,            XSCF_NULL,                1,   1, "slv_engine_multi_railtype",        nullptr, nullptr, nullptr          },
+ 	{ XSLFI_TOWN_SUPPLY_HISTORY,              XSCF_NULL,                1,   1, "slv_town_supply_history",          nullptr, nullptr, nullptr          },
+ 	{ XSLFI_DRIVE_BACKWARDS,                  XSCF_NULL,                1,   1, "slv_drive_backwards",              nullptr, nullptr, nullptr          },
++	{ XSLFI_LAND_VALUE,                       XSCF_NULL,                1,   1, "land_value",                       nullptr, nullptr, nullptr          },
+ 
+ 	{ XSLFI_PR_13745_APPLIED,                 XSCF_IGNORABLE_ALL,       1,   1, "pr_13745",                         nullptr, nullptr, nullptr          },
+ 	{ XSLFI_SIGNAL_STATE_FIX,                 XSCF_IGNORABLE_ALL,       1,   1, "signal_state_fix",                 nullptr, nullptr, nullptr          },
+diff --git a/src/sl/extended_ver_sl.h b/src/sl/extended_ver_sl.h
+index 77e70ea..f8b340b 100644
+--- a/src/sl/extended_ver_sl.h
++++ b/src/sl/extended_ver_sl.h
+@@ -206,6 +206,7 @@ enum SlXvFeatureIndex {
+ 	XSLFI_SPRINGPP,                               ///< This is a SpringPP game, use this for loading some settings
+ 	XSLFI_JOKERPP,                                ///< This is a JokerPP game, use this for loading some settings
+ 	XSLFI_CHILLPP,                                ///< This is a ChillPP game, use this for loading some settings
++	XSLFI_LAND_VALUE,                             ///< Persistent per-town land-value score
+ 
+ 	XSLFI_SIZE,                                   ///< Total count of features, including null feature
+ };
+diff --git a/src/sl/town_sl.cpp b/src/sl/town_sl.cpp
+index 0413207..9fc3619 100644
+--- a/src/sl/town_sl.cpp
++++ b/src/sl/town_sl.cpp
+@@ -352,6 +352,7 @@ static std::array<Town::SuppliedHistory, 2> _old_mail_supplied{};
+ static const NamedSaveLoad _town_desc[] = {
+ 	NSL("xy", SLE_CONDVAR(Town, xy,                    SLE_FILE_U16 | SLE_VAR_U32, SL_MIN_VERSION, SLV_6)),
+ 	NSL("xy", SLE_CONDVAR(Town, xy,                    SLE_UINT32,                 SLV_6, SL_MAX_VERSION)),
++	NSL("land_value_score", SLE_CONDVAR_X(Town, land_value_score, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_LAND_VALUE))),
+ 
+ 	NSL("", SLE_CONDNULL(2, SL_MIN_VERSION, SLV_3)),                   ///< population, no longer in use
+ 	NSL("", SLE_CONDNULL(4, SLV_3, SLV_85)),                           ///< population, no longer in use
+diff --git a/src/tests/land_value.cpp b/src/tests/land_value.cpp
+index 8fb442a..81e3f80 100644
+--- a/src/tests/land_value.cpp
++++ b/src/tests/land_value.cpp
+@@ -12,6 +12,8 @@
+ #include "../3rdparty/catch2/catch.hpp"
+ 
+ #include "../land_value.h"
++#include "../town.h"
++#include "../sl/extended_ver_sl.h"
+ 
+ #include "../safeguards.h"
+ 
+@@ -90,3 +92,38 @@ TEST_CASE("Land value tile queries are neutral before cache integration")
+ 	CHECK(GetLandValueModifier(tile) == LAND_VALUE_MODIFIER_BASE);
+ 	CHECK(GetFinalLandValueScore(tile) == LAND_VALUE_BASE);
+ }
++
++TEST_CASE("Land value extended save feature is registered as version one")
++{
++	const auto previous_versions = _sl_xv_feature_static_versions;
++	SlXvSetStaticCurrentVersions();
++
++	CHECK(_sl_xv_feature_static_versions[XSLFI_LAND_VALUE] == 1);
++	CHECK(std::string_view{SlXvGetFeatureName(XSLFI_LAND_VALUE)} == "land_value");
++
++	_sl_xv_feature_static_versions = previous_versions;
++}
++
++TEST_CASE("Town land value state initializes and preserves valid saved values")
++{
++	_town_pool.CleanPool();
++	REQUIRE(Town::CanAllocateItem());
++	Town *town = Town::Create(TileIndex{0});
++
++	CHECK(sizeof(town->land_value_score) == sizeof(uint32_t));
++	CHECK(town->land_value_score == LAND_VALUE_BASE.base());
++
++	town->land_value_score = 777;
++	InitializeLoadedTownLandValues(true);
++	CHECK(town->land_value_score == 777);
++
++	town->land_value_score = LAND_VALUE_MAX.base() + 1;
++	InitializeLoadedTownLandValues(true);
++	CHECK(town->land_value_score == LAND_VALUE_MAX.base());
++
++	town->land_value_score = 777;
++	InitializeLoadedTownLandValues(false);
++	CHECK(town->land_value_score == LAND_VALUE_BASE.base());
++
++	_town_pool.CleanPool();
++}
+diff --git a/src/town.h b/src/town.h
+index c58f251..27c0505 100644
+--- a/src/town.h
++++ b/src/town.h
+@@ -11,6 +11,7 @@
+ #define TOWN_H
+ 
+ #include "misc/history_type.hpp"
++#include "land_value_type.h"
+ #include "viewport_type.h"
+ #include "town_map.h"
+ #include "station_container.h"
+@@ -86,6 +87,7 @@ enum TownSettingOverrideFlags : uint8_t {
+ /** Town data structure. */
+ struct Town : TownPool::PoolItem<&_town_pool> {
+ 	TileIndex xy = INVALID_TILE; ///< town center tile
++	uint32_t land_value_score = LAND_VALUE_BASE.base(); ///< Persistent land-value score; 100 represents the base value.
+ 
+ 	TownCache cache{}; ///< Container for all cacheable data.
+ 
+diff --git a/src/town_cmd.cpp b/src/town_cmd.cpp
+index 12a7a70..7725074 100644
+--- a/src/town_cmd.cpp
++++ b/src/town_cmd.cpp
+@@ -15,6 +15,7 @@
+ #include "road_cmd.h"
+ #include "landscape.h"
+ #include "landscape_cmd.h"
++#include "land_value.h"
+ #include "viewport_func.h"
+ #include "viewport_kdtree.h"
+ #include "command_func.h"
+@@ -2277,6 +2278,7 @@ static void DoCreateTown(Town *t, TileIndex tile, uint32_t townnameparts, TownSi
+ 	UpdateTownGrowthRate(t);
+ 	UpdateTownMaxPass(t);
+ 	UpdateAirportsNoise();
++	InitializeTownLandValue(t);
+ }
+ 
+ /**

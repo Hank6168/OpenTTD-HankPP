@@ -1,0 +1,74 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file ship.h Base for ships. */
+
+#ifndef SHIP_H
+#define SHIP_H
+
+#include <array>
+
+#include "vehicle_base.h"
+#include "water_map.h"
+#include "3rdparty/cpp-ring-buffer/ring_buffer.hpp"
+
+extern const TrackIndexArray<DiagDirectionIndexArray<DiagDirection>> _ship_search_directions;
+
+void GetShipSpriteSize(EngineID engine, uint &width, uint &height, int &xoffs, int &yoffs, EngineImageType image_type);
+WaterClass GetEffectiveWaterClass(TileIndex tile);
+
+typedef jgr::ring_buffer<Trackdir> ShipPathCache;
+
+/** Maximum segments of ship path cache */
+static const uint8_t SHIP_PATH_CACHE_LENGTH = 32;
+static const uint8_t SHIP_PATH_CACHE_MASK = (SHIP_PATH_CACHE_LENGTH - 1);
+static_assert((SHIP_PATH_CACHE_LENGTH & SHIP_PATH_CACHE_MASK) == 0, ""); // Must be a power of 2
+
+/**
+ * All ships have this type.
+ */
+struct Ship final : public SpecializedVehicle<Ship, VehicleType::Ship, Vehicle> {
+	TrackBits state{};                       ///< The "track" the ship is following.
+	ShipPathCache cached_path{};             ///< Cached path.
+	Direction rotation = Direction::Invalid; ///< Visible direction.
+	int16_t rotation_x_pos = 0;              ///< NOSAVE: X Position before rotation.
+	int16_t rotation_y_pos = 0;              ///< NOSAVE: Y Position before rotation.
+	uint8_t lost_count = 0;                  ///< Count of number of failed pathfinder attempts
+	uint8_t critical_breakdown_count = 0;    ///< Counter for the number of critical breakdowns since last service
+
+	Ship(VehicleID index) : SpecializedVehicleBase(index) {}
+	/** We want to 'destruct' the right class. */
+	~Ship() override { this->PreDestructor(); }
+
+	void MarkDirty() override;
+	void UpdateDeltaXY() override;
+	ExpensesType GetExpenseType(bool income) const override { return income ? ExpensesType::ShipRevenue : ExpensesType::ShipRun; }
+	void PlayLeaveStationSound(bool force = false) const override;
+	bool IsPrimaryVehicle() const override { return this->Previous() == nullptr; }
+	void GetImage(Direction direction, EngineImageType image_type, VehicleSpriteSeq *result) const override;
+	Direction GetMapImageDirection() const { return this->rotation; }
+	int GetDisplaySpeed() const  override{ return this->cur_speed / 2; }
+	int GetDisplayMaxSpeed() const override{ return this->vcache.cached_max_speed / 2; }
+	int GetEffectiveMaxSpeed() const;
+	int GetDisplayEffectiveMaxSpeed() const { return this->GetEffectiveMaxSpeed() / 2; }
+	int GetCurrentMaxSpeed() const override { return std::min<int>(this->GetEffectiveMaxSpeed(), this->current_order.GetMaxSpeed() * 2); }
+	Money GetRunningCost() const override;
+	bool IsInDepot() const override { return this->state == TRACK_BIT_DEPOT; }
+	bool Tick() override;
+	void OnNewDay() override;
+	void OnPeriodic() override;
+	Trackdir GetVehicleTrackdir() const override;
+	TileIndex GetOrderStationLocation(StationID station) override;
+	TileIndex GetCargoTile() const override { return this->First()->tile; }
+	ClosestDepot FindClosestDepot() const override;
+	void UpdateCache();
+	void SetDestTile(TileIndex tile) override;
+};
+
+bool IsShipDestinationTile(TileIndex tile, StationID station);
+
+#endif /* SHIP_H */

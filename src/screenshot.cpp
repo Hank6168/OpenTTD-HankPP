@@ -1,0 +1,847 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file screenshot.cpp The creation of screenshots! */
+
+#include "stdafx.h"
+#include "core/backup_type.hpp"
+#include "fileio_func.h"
+#include "viewport_func.h"
+#include "gfx_func.h"
+#include "screenshot.h"
+#include "blitter/factory.hpp"
+#include "zoom_func.h"
+#include "sl/saveload.h"
+#include "company_func.h"
+#include "strings_func.h"
+#include "error.h"
+#include "industry.h"
+#include "industrytype.h"
+#include "textbuf_gui.h"
+#include "window_gui.h"
+#include "window_func.h"
+#include "tile_map.h"
+#include "landscape.h"
+#include "video/video_driver.hpp"
+#include "smallmap_colours.h"
+#include "smallmap_gui.h"
+#include "screenshot_gui.h"
+#include "screenshot_type.h"
+
+#include "table/strings.h"
+
+#include "safeguards.h"
+
+static const char * const SCREENSHOT_NAME = "screenshot"; ///< Default filename of a saved screenshot.
+static const char * const HEIGHTMAP_NAME  = "heightmap";  ///< Default filename of a saved heightmap.
+
+std::string _screenshot_format_name;  ///< Extension of the current screenshot format.
+static std::string _screenshot_name;  ///< Filename of the screenshot file.
+std::string _full_screenshot_path;    ///< Pathname of the screenshot file.
+uint _heightmap_highest_peak;         ///< When saving a heightmap, this contains the highest peak on the map.
+
+const char *ScreenshotAuxiliaryText::key = nullptr;
+const char *ScreenshotAuxiliaryText::value = nullptr;
+
+/**
+ * Get the screenshot provider for the selected format.
+ * If the selected provider is not found, then the first provider will be used instead.
+ * @returns ScreenshotProvider, or null if none exist.
+ */
+static const ScreenshotProvider *GetScreenshotProvider()
+{
+	const auto &providers = ProviderManager<ScreenshotProvider>::GetProviders();
+	if (providers.empty()) return nullptr;
+
+	auto it = std::ranges::find(providers, _screenshot_format_name, &ScreenshotProvider::GetName);
+	if (it != std::end(providers)) return *it;
+
+	return providers.front();
+}
+
+/**
+ * Get filename extension of current screenshot file format.
+ * @return The screenshot extension.
+ */
+std::string_view GetCurrentScreenshotExtension()
+{
+	auto provider = GetScreenshotProvider();
+	if (provider == nullptr) return {};
+
+	return provider->GetName();
+}
+
+/**
+ * Callback of the screenshot generator that dumps the current video buffer.
+ * @param buf Videobuffer with same bitdepth as current blitter
+ * @param y First line to render
+ * @param pitch Pitch of the videobuffer
+ * @param n Number of lines to render
+ * @see ScreenshotCallback
+ */
+static void CurrentScreenCallback(void *, void *buf, uint y, uint pitch, uint n)
+{
+	Blitter *blitter = BlitterFactory::GetCurrentBlitter();
+	void *src = blitter->MoveTo(_screen.dst_ptr, 0, y);
+	blitter->CopyImageToBuffer(src, buf, _screen.width, n, pitch);
+}
+
+/**
+ * generate a large piece of the world
+ * @param userdata Viewport area to draw
+ * @param buf Videobuffer with same bitdepth as current blitter
+ * @param y First line to render
+ * @param pitch Pitch of the videobuffer
+ * @param n Number of lines to render
+ */
+static void LargeWorldCallback(void *userdata, void *buf, uint y, uint pitch, uint n)
+{
+	Viewport *vp = (Viewport *)userdata;
+	DrawPixelInfo dpi;
+	int wx, left;
+
+	/* We are no longer rendering to the screen */
+	DrawPixelInfo old_screen = _screen;
+	bool old_disable_anim = _screen_disable_anim;
+
+	_screen.dst_ptr = buf;
+	_screen.width = pitch;
+	_screen.height = n;
+	_screen.pitch = pitch;
+	_screen_disable_anim = true;
+
+	Backup dpi_backup(_cur_dpi, &dpi, FILE_LINE);
+
+	dpi.dst_ptr = buf;
+	dpi.height = n;
+	dpi.width = vp->width;
+	dpi.pitch = pitch;
+	dpi.zoom = ZoomLevel::WorldScreenshot;
+	dpi.left = 0;
+	dpi.top = y;
+
+	/* Render viewport in blocks of 1600 pixels width */
+	left = 0;
+	while (vp->width - left != 0) {
+		wx = std::min(vp->width - left, 1600);
+		left += wx;
+
+		extern void ViewportDoDraw(Viewport *vp, int left, int top, int right, int bottom, NWidgetDisplayFlags display_flags);
+		ViewportDoDraw(vp,
+			ScaleByZoom(left - wx - vp->left, vp->zoom) + vp->virtual_left,
+			ScaleByZoom(y - vp->top, vp->zoom) + vp->virtual_top,
+			ScaleByZoom(left - vp->left, vp->zoom) + vp->virtual_left,
+			ScaleByZoom((y + n) - vp->top, vp->zoom) + vp->virtual_top,
+			{}
+		);
+	}
+
+	dpi_backup.Restore();
+
+	ViewportDoDrawProcessAllPending();
+
+	/* Switch back to rendering to the screen */
+	_screen = old_screen;
+	_screen_disable_anim = old_disable_anim;
+
+	ClearViewportCache(vp);
+}
+
+/**
+ * Construct a pathname for a screenshot file.
+ * @param default_fn Default filename.
+ * @param ext        Extension to use.
+ * @param crashlog   Create path for crash.png
+ * @return Pathname for a screenshot file.
+ */
+static const char *MakeScreenshotName(std::string_view default_fn, std::string_view ext, bool crashlog = false)
+{
+	bool generate = _screenshot_name.empty();
+
+	if (generate) {
+		if (_game_mode == GameMode::Editor || _game_mode == GameMode::Menu || _local_company == COMPANY_SPECTATOR) {
+			_screenshot_name = default_fn;
+		} else {
+			_screenshot_name = GenerateDefaultSaveName();
+		}
+	}
+
+	size_t len = _screenshot_name.size();
+
+	/* Handle user-specified filenames ending in %d or # with automatic numbering */
+	if (len >= 2 && _screenshot_name[len - 2] == '%' && _screenshot_name[len - 1] == 'd') {
+		generate = true;
+		_screenshot_name.resize(len - 2);
+	} else if (len >= 1 && _screenshot_name[len - 1] == '#') {
+		generate = true;
+		_screenshot_name.resize(len - 1);
+	}
+
+	len = _screenshot_name.size();
+
+	/* Add extension to screenshot file */
+	_screenshot_name += '.';
+	_screenshot_name += ext;
+
+	const char *screenshot_dir = crashlog ? _personal_dir.c_str() : FiosGetScreenshotDir();
+
+	for (uint serial = 1;; serial++) {
+		_full_screenshot_path = screenshot_dir;
+		_full_screenshot_path += _screenshot_name;
+
+		if (!generate) break; // allow overwriting of non-automatic filenames
+		if (!FileExists(_full_screenshot_path)) break;
+		/* If file exists try another one with same name, but just with a higher index */
+		_screenshot_name.erase(len);
+		_screenshot_name += fmt::format("#{}.{}", serial, ext);
+	}
+
+	return _full_screenshot_path.c_str();
+}
+
+/**
+ * Make a screenshot of the current screen.
+ * @param crashlog Whether this is called in the context of a crashlog, for the file name.
+ * @return \c true iff the screenshot was made successfully.
+ */
+static bool MakeSmallScreenshot(bool crashlog)
+{
+	auto provider = GetScreenshotProvider();
+	if (provider == nullptr) return false;
+
+	return provider->MakeImage(MakeScreenshotName(SCREENSHOT_NAME, provider->GetName(), crashlog), CurrentScreenCallback, nullptr, _screen.width, _screen.height,
+			BlitterFactory::GetCurrentBlitter()->GetScreenDepth(), _cur_palette.palette);
+}
+
+/**
+ * Configure a Viewport for rendering (a part of) the map into a screenshot.
+ * @param t Screenshot type
+ * @param width the width of the screenshot, or 0 for current viewport width (needs to be 0 with SC_VIEWPORT, SC_CRASHLOG, and SC_WORLD).
+ * @param height the height of the screenshot, or 0 for current viewport height (needs to be 0 with SC_VIEWPORT, SC_CRASHLOG, and SC_WORLD).
+ * @return Viewport
+ */
+static Viewport SetupScreenshotViewport(ScreenshotType t, uint32_t width = 0, uint32_t height = 0)
+{
+	Viewport vp{};
+
+	switch(t) {
+		case SC_VIEWPORT:
+		case SC_CRASHLOG: {
+			assert(width == 0 && height == 0);
+
+			Window *w = GetMainWindow();
+			vp.virtual_left   = w->viewport->virtual_left;
+			vp.virtual_top    = w->viewport->virtual_top;
+			vp.virtual_width  = w->viewport->virtual_width;
+			vp.virtual_height = w->viewport->virtual_height;
+
+			/* Compute pixel coordinates */
+			vp.left = 0;
+			vp.top = 0;
+			vp.width = _screen.width;
+			vp.height = _screen.height;
+			vp.overlay = w->viewport->overlay;
+			break;
+		}
+		case SC_WORLD:
+		case SC_WORLD_ZOOM: {
+			assert(width == 0 && height == 0);
+
+			/* Determine world coordinates of screenshot */
+			if (t == SC_WORLD_ZOOM) {
+				Window *w = FindWindowById(WindowClass::MainWindow, 0);
+				vp.zoom =  w->viewport->zoom;
+				vp.map_type = w->viewport->map_type;
+			} else {
+				vp.zoom = ZoomLevel::WorldScreenshot;
+			}
+
+			TileIndex north_tile = _settings_game.construction.freeform_edges ? TileXY(1, 1) : TileXY(0, 0);
+			TileIndex south_tile{Map::Size() - 1};
+
+			/* We need to account for a hill or high building at tile 0,0. */
+			int extra_height_top = TilePixelHeight(north_tile) + 150;
+			/* If there is a hill at the bottom don't create a large black area. */
+			int reclaim_height_bottom = TilePixelHeight(south_tile);
+
+			vp.virtual_left   = RemapCoords(TileX(south_tile) * TILE_SIZE, TileY(north_tile) * TILE_SIZE, 0).x;
+			vp.virtual_top    = RemapCoords(TileX(north_tile) * TILE_SIZE, TileY(north_tile) * TILE_SIZE, extra_height_top).y;
+			vp.virtual_width  = RemapCoords(TileX(north_tile) * TILE_SIZE, TileY(south_tile) * TILE_SIZE, 0).x                     - vp.virtual_left + 1;
+			vp.virtual_height = RemapCoords(TileX(south_tile) * TILE_SIZE, TileY(south_tile) * TILE_SIZE, reclaim_height_bottom).y - vp.virtual_top  + 1;
+
+			/* Compute pixel coordinates */
+			vp.left = 0;
+			vp.top = 0;
+			vp.width  = UnScaleByZoom(vp.virtual_width,  vp.zoom);
+			vp.height = UnScaleByZoom(vp.virtual_height, vp.zoom);
+			vp.overlay = nullptr;
+			break;
+		}
+		default: {
+			vp.zoom = (t == SC_ZOOMEDIN) ? _settings_client.gui.zoom_min : ZoomLevel::Viewport;
+
+			Window *w = GetMainWindow();
+			vp.virtual_left   = w->viewport->virtual_left;
+			vp.virtual_top    = w->viewport->virtual_top;
+
+			if (width == 0 || height == 0) {
+				vp.virtual_width  = w->viewport->virtual_width;
+				vp.virtual_height = w->viewport->virtual_height;
+			} else {
+				vp.virtual_width = width << to_underlying(vp.zoom);
+				vp.virtual_height = height << to_underlying(vp.zoom);
+			}
+
+			/* Compute pixel coordinates */
+			vp.left = 0;
+			vp.top = 0;
+			vp.width  = UnScaleByZoom(vp.virtual_width,  vp.zoom);
+			vp.height = UnScaleByZoom(vp.virtual_height, vp.zoom);
+			vp.overlay = nullptr;
+			break;
+		}
+	}
+	UpdateViewportSizeZoom(&vp);
+
+	return vp;
+}
+
+/**
+ * Make a screenshot of the map.
+ * @param t Screenshot type: World or viewport screenshot
+ * @param width the width of the screenshot of, or 0 for current viewport width.
+ * @param height the height of the screenshot of, or 0 for current viewport height.
+ * @return true on success
+ */
+static bool MakeLargeWorldScreenshot(ScreenshotType t, uint32_t width = 0, uint32_t height = 0)
+{
+	auto provider = GetScreenshotProvider();
+	if (provider == nullptr) return false;
+
+	Viewport vp = SetupScreenshotViewport(t, width, height);
+
+	return provider->MakeImage(MakeScreenshotName(SCREENSHOT_NAME, provider->GetName()), LargeWorldCallback, &vp, vp.width, vp.height,
+			BlitterFactory::GetCurrentBlitter()->GetScreenDepth(), _cur_palette.palette);
+}
+
+/**
+ * Callback for generating a heightmap. Supports 8bpp greyscale only.
+ * @param buffer   Destination buffer.
+ * @param y        Line number of the first line to write.
+ * @param n        Number of lines to write.
+ * @see ScreenshotCallback
+ */
+static void HeightmapCallback(void *, void *buffer, uint y, uint, uint n)
+{
+	uint8_t *buf = (uint8_t *)buffer;
+	while (n > 0) {
+		TileIndex ti = TileXY(Map::MaxX(), y);
+		for (uint x = Map::MaxX(); true; x--) {
+			*buf = 256 * TileHeight(ti) / (1 + _heightmap_highest_peak);
+			buf++;
+			if (x == 0) break;
+			ti = TileAddXY(ti, -1, 0);
+		}
+		y++;
+		n--;
+	}
+}
+
+/**
+ * Make a heightmap of the current map.
+ * @param filename Filename to use for saving.
+ * @return \c true iff the screenshot was made successfully.
+ */
+bool MakeHeightmapScreenshot(const char *filename)
+{
+	auto provider = GetScreenshotProvider();
+	if (provider == nullptr) return false;
+
+	Colour palette[256];
+	for (uint i = 0; i < lengthof(palette); i++) {
+		palette[i].a = 0xff;
+		palette[i].r = i;
+		palette[i].g = i;
+		palette[i].b = i;
+	}
+
+	_heightmap_highest_peak = 0;
+	for (TileIndex tile(0); tile < Map::Size(); ++tile) {
+		uint h = TileHeight(tile);
+		_heightmap_highest_peak = std::max(h, _heightmap_highest_peak);
+	}
+
+	return provider->MakeImage(filename, HeightmapCallback, nullptr, Map::SizeX(), Map::SizeY(), 8, palette);
+}
+
+static ScreenshotType _confirmed_screenshot_type; ///< Screenshot type the current query is about to confirm.
+
+/**
+ * Callback on the confirmation window for huge screenshots.
+ * @param confirmed true on confirmation
+ */
+static void ScreenshotConfirmationCallback(Window *, bool confirmed)
+{
+	if (confirmed) MakeScreenshot(_confirmed_screenshot_type, {});
+}
+
+/**
+ * Make a screenshot.
+ * Ask for confirmation first if the screenshot will be huge.
+ * @param t Screenshot type: World, defaultzoom, heightmap or viewport screenshot
+ * @see MakeScreenshot
+ */
+void MakeScreenshotWithConfirm(ScreenshotType t)
+{
+	Viewport vp = SetupScreenshotViewport(t);
+
+	bool heightmap_or_minimap = t == SC_HEIGHTMAP || t == SC_MINIMAP || t == SC_TOPOGRAPHY || t == SC_INDUSTRY;
+	uint64_t width = (heightmap_or_minimap ? Map::SizeX() : vp.width);
+	uint64_t height = (heightmap_or_minimap ? Map::SizeY() : vp.height);
+
+	if (width * height > 8192 * 8192) {
+		/* Ask for confirmation */
+		_confirmed_screenshot_type = t;
+		ShowQuery(
+			GetEncodedString(STR_WARNING_SCREENSHOT_SIZE_CAPTION),
+			GetEncodedString(STR_WARNING_SCREENSHOT_SIZE_MESSAGE, width, height), nullptr, ScreenshotConfirmationCallback);
+	} else {
+		/* Less than 64M pixels, just do it */
+		MakeScreenshot(t, {});
+	}
+}
+
+/**
+ * Show a a success or failure message indicating the result of a screenshot action
+ * @param ret  whether the screenshot action was successful
+ */
+static void ShowScreenshotResultMessage(ScreenshotType t, bool ret)
+{
+	if (ret) {
+		if (t == SC_HEIGHTMAP) {
+			ShowErrorMessage(GetEncodedString(STR_MESSAGE_HEIGHTMAP_SUCCESSFULLY, _screenshot_name, _heightmap_highest_peak), {}, WarningLevel::Warning);
+		} else {
+			ShowErrorMessage(GetEncodedString(STR_MESSAGE_SCREENSHOT_SUCCESSFULLY, _screenshot_name), {}, WarningLevel::Warning);
+		}
+	} else {
+		ShowErrorMessage(GetEncodedString(STR_ERROR_SCREENSHOT_FAILED), {}, WarningLevel::Error);
+	}
+}
+
+/**
+ * Make a screenshot.
+ * @param t    the type of screenshot to make.
+ * @param name the name to give to the screenshot.
+ * @param width the width of the screenshot of, or 0 for current viewport width (only works for SC_ZOOMEDIN and SC_DEFAULTZOOM).
+ * @param height the height of the screenshot of, or 0 for current viewport height (only works for SC_ZOOMEDIN and SC_DEFAULTZOOM).
+ * @return true iff the screenshot was made successfully
+ */
+static bool RealMakeScreenshot(ScreenshotType t, std::string_view name, uint32_t width, uint32_t height)
+{
+	if (t == SC_VIEWPORT) {
+		/* First draw the dirty parts of the screen and only then change the name
+		 * of the screenshot. This way the screenshot will always show the name
+		 * of the previous screenshot in the 'successful' message instead of the
+		 * name of the new screenshot (or an empty name). */
+		SetScreenshotWindowHidden(true);
+		UndrawMouseCursor();
+		DrawDirtyBlocks();
+		SetScreenshotWindowHidden(false);
+	}
+
+	_screenshot_name = name;
+
+	bool ret;
+	switch (t) {
+		case SC_VIEWPORT:
+			ret = MakeSmallScreenshot(false);
+			break;
+
+		case SC_CRASHLOG:
+			ret = MakeSmallScreenshot(true);
+			break;
+
+		case SC_ZOOMEDIN:
+		case SC_DEFAULTZOOM:
+			ret = MakeLargeWorldScreenshot(t, width, height);
+			break;
+
+		case SC_WORLD:
+		case SC_WORLD_ZOOM:
+			ret = MakeLargeWorldScreenshot(t);
+			break;
+
+		case SC_HEIGHTMAP: {
+			auto provider = GetScreenshotProvider();
+			if (provider == nullptr) {
+				ret = false;
+			} else {
+				ret = MakeHeightmapScreenshot(MakeScreenshotName(HEIGHTMAP_NAME, provider->GetName()));
+			}
+			break;
+		}
+
+		case SC_MINIMAP:
+			ret = MakeMinimapWorldScreenshot(name);
+			break;
+
+		case SC_TOPOGRAPHY:
+			ret = MakeTopographyScreenshot(name);
+			break;
+
+		case SC_INDUSTRY:
+			ret = MakeIndustryScreenshot(name);
+			break;
+
+		default:
+			NOT_REACHED();
+	}
+
+	ShowScreenshotResultMessage(t, ret);
+
+	return ret;
+}
+
+/**
+ * Schedule making a screenshot.
+ * Unconditionally take a screenshot of the requested type.
+ * @param t    the type of screenshot to make.
+ * @param name the name to give to the screenshot.
+ * @param width the width of the screenshot of, or 0 for current viewport width (only works for SC_ZOOMEDIN and SC_DEFAULTZOOM).
+ * @param height the height of the screenshot of, or 0 for current viewport height (only works for SC_ZOOMEDIN and SC_DEFAULTZOOM).
+ * @return true iff the screenshot was successfully made.
+ * @see MakeScreenshotWithConfirm
+ */
+bool MakeScreenshot(ScreenshotType t, std::string_view name, uint32_t width, uint32_t height)
+{
+	if (t == SC_CRASHLOG) {
+		/* Video buffer might or might not be locked. */
+		VideoDriver::VideoBufferLocker lock;
+
+		return RealMakeScreenshot(t, name, width, height);
+	}
+
+	VideoDriver::GetInstance()->QueueOnMainThread([t, name_str = std::string{name}, width, height] { // Capture by value to not break scope.
+		RealMakeScreenshot(t, name_str, width, height);
+	});
+
+	return true;
+}
+
+/**
+ * Callback for generating a smallmap screenshot.
+ * @param userdata SmallMapWindow window pointer
+ * @param buf Videobuffer with same bitdepth as current blitter
+ * @param y First line to render
+ * @param pitch Pitch of the videobuffer
+ * @param n Number of lines to render
+ */
+static void SmallMapCallback(void *userdata, void *buf, uint y, uint pitch, uint n)
+{
+	SmallMapWindow *window = static_cast<SmallMapWindow *>(userdata);
+	window->ScreenshotCallbackHandler(buf, y, pitch, n);
+}
+
+/**
+ * Make a screenshot of the smallmap
+ * @param width   the width of the screenshot
+ * @param height  the height of the screenshot
+ * @param window  a pointer to the smallmap window to use, the current mode and zoom status of the window is used for the screenshot
+ * @return true iff the screenshot was made successfully
+ */
+bool MakeSmallMapScreenshot(unsigned int width, unsigned int height, SmallMapWindow *window)
+{
+	_screenshot_name.clear();
+
+	auto provider = GetScreenshotProvider();
+	if (provider == nullptr) {
+		ShowScreenshotResultMessage(SC_SMALLMAP, false);
+		return false;
+	}
+
+	bool ret = provider->MakeImage(MakeScreenshotName(SCREENSHOT_NAME, provider->GetName()), SmallMapCallback, window, width, height, BlitterFactory::GetCurrentBlitter()->GetScreenDepth(), _cur_palette.palette);
+	ShowScreenshotResultMessage(SC_SMALLMAP, ret);
+	return ret;
+}
+
+/**
+ * Return the owner of a tile to display it with in the small map in mode "Owner".
+ *
+ * @param tile The tile of which we would like to get the colour.
+ * @return The owner of tile in the small map in mode "Owner"
+ */
+static Owner GetMinimapOwner(TileIndex tile)
+{
+	Owner o;
+
+	if (IsTileType(tile, TileType::Void)) {
+		return OWNER_END;
+	} else {
+		switch (GetTileType(tile)) {
+		case TileType::Industry: o = OWNER_DEITY;        break;
+		case TileType::House:    o = OWNER_TOWN;         break;
+		default:          o = GetTileOwner(tile); break;
+			/* FIXME: For TileType::Road there are multiple owners.
+			 * GetTileOwner returns the rail owner (level crossing) resp. the owner of ROADTYPE_ROAD (normal road),
+			 * even if there are no ROADTYPE_ROAD bits on the tile.
+			 */
+		}
+
+		return o;
+	}
+}
+
+/**
+ * Return the color value of a tile to display it with in the topography screenshot.
+ *
+ * @param tile The tile of which we would like to get the colour.
+ * @return The color palette value
+ */
+static PixelColour GetTopographyValue(TileIndex tile)
+{
+	const auto tile_type = GetTileType(tile);
+
+	if (tile_type == TileType::Station) {
+		switch (GetStationType(tile)) {
+			case StationType::Rail:
+				return PC_GREY;
+			case StationType::Airport:
+				return PC_GREY;
+			case StationType::Truck:
+				return PC_BLACK;
+			case StationType::Bus:
+				return PC_BLACK;
+			case StationType::Oilrig:
+			case StationType::Dock:
+				return PC_GREY;
+			case StationType::Buoy:
+				return PC_WATER;
+			case StationType::RailWaypoint:
+				return PC_GREY;
+			case StationType::RoadWaypoint:
+				return PC_GREY;
+			default: NOT_REACHED();
+		}
+	}
+
+	if (IsBridgeAbove(tile)) {
+		return PC_DARK_GREY;
+	}
+
+	switch (tile_type) {
+		case TileType::TunnelBridge:
+			return PC_DARK_GREY;
+		case TileType::Railway:
+			return PC_GREY;
+		case TileType::Road:
+			return PC_BLACK;
+		case TileType::House:
+			return PixelColour{0xB5};
+		case TileType::Water:
+			return PC_WATER;
+		case TileType::Industry:
+			return PixelColour{0xA2};
+		default: {
+			const auto tile_z = GetTileZ(tile);
+			const auto max_z = _settings_game.construction.map_height_limit;
+			const auto color_index = (tile_z * 16) / max_z;
+
+			switch (color_index) {
+				case 0:
+					return PixelColour{0x50};
+				case 1:
+					return PixelColour{0x51};
+				case 2:
+					return PixelColour{0x52};
+				case 3:
+					return PixelColour{0x53};
+				case 4:
+					return PixelColour{0x54};
+				case 5:
+					return PixelColour{0x55};
+				case 6:
+					return PixelColour{0x56};
+				case 7:
+					return PixelColour{0x57};
+				case 8:
+					return PixelColour{0x3B};
+				case 9:
+					return PixelColour{0x3A};
+				case 10:
+					return PixelColour{0x39};
+				case 11:
+					return PixelColour{0x38};
+				case 12:
+					return PixelColour{0x37};
+				case 13:
+					return PixelColour{0x36};
+				case 14:
+					return PixelColour{0x35};
+				case 15:
+					return PixelColour{0x69};
+				default:
+					return PixelColour{0x46};
+			}
+		}
+	}
+}
+
+/**
+ * Return the color value of a tile to display it with in the industries screenshot.
+ *
+ * @param tile The tile of which we would like to get the colour.
+ * @return The color palette value
+ */
+static PixelColour GetIndustryValue(TileIndex tile)
+{
+	const auto tile_type = GetTileType(tile);
+
+	if (tile_type == TileType::Station) {
+		switch (GetStationType(tile)) {
+			case StationType::Rail:
+				return PC_DARK_GREY;
+			case StationType::Airport:
+				return GREY_SCALE(12);
+			case StationType::Truck:
+				return PC_GREY;
+			case StationType::Bus:
+				return PC_GREY;
+			case StationType::Oilrig:
+			case StationType::Dock:
+				return PC_GREY;
+			case StationType::Buoy:
+				return PC_BLACK;
+			case StationType::RailWaypoint:
+				return PC_GREY;
+			case StationType::RoadWaypoint:
+				return PC_GREY;
+			default: NOT_REACHED();
+		}
+	}
+
+	if (IsBridgeAbove(tile)) {
+		return GREY_SCALE(12);
+	}
+
+	switch (tile_type) {
+		case TileType::TunnelBridge:
+			return GREY_SCALE(12);
+		case TileType::Railway:
+			return PC_DARK_GREY;
+		case TileType::Road:
+			return PC_GREY;
+		case TileType::House:
+			return GREY_SCALE(4);
+		case TileType::Water:
+			return PixelColour{0x12};
+		case TileType::Industry: {
+			const IndustryType industry_type = Industry::GetByTile(tile)->type;
+
+			return GetIndustrySpec(industry_type)->map_colour;
+		}
+		default:
+			return GREY_SCALE(2);
+	}
+}
+
+template <typename T>
+void MinimapScreenCallback(void *userdata, void *buf, uint y, uint pitch, uint n, T color_callback)
+{
+	uint32_t *ubuf = (uint32_t *)buf;
+	uint num = (pitch * n);
+	for (uint i = 0; i < num; i++) {
+		uint row = y + (int)(i / pitch);
+		uint col = (Map::SizeX() - 1) - (i % pitch);
+
+		TileIndex tile = TileXY(col, row);
+		PixelColour val = color_callback(tile);
+
+		uint32_t colour_buf = 0;
+		colour_buf  = (_cur_palette.palette[val.p].b << 0);
+		colour_buf |= (_cur_palette.palette[val.p].g << 8);
+		colour_buf |= (_cur_palette.palette[val.p].r << 16);
+
+		*ubuf = colour_buf;
+		ubuf++;   // Skip alpha
+	}
+}
+
+/**
+ * Return the color value of a tile to display it with in the minimap screenshot.
+ *
+ * @param tile The tile of which we would like to get the colour.
+ * @return The color palette value
+ */
+static void MinimapScreenCallback(void *userdata, void *buf, uint y, uint pitch, uint n)
+{
+	/* Fill with the company colours */
+	TypedIndexContainer<std::array<PixelColour, OWNER_END + 1>, CompanyID> owner_colours;
+	for (const Company *c : Company::Iterate()) {
+		owner_colours[c->index] = GetColourGradient(c->colour, Shade::Light);
+	}
+
+	/* Fill with some special colours */
+	owner_colours[OWNER_TOWN]    = PC_DARK_RED;
+	owner_colours[OWNER_NONE]    = PC_GRASS_LAND;
+	owner_colours[OWNER_WATER]   = PC_WATER;
+	owner_colours[OWNER_DEITY]   = PC_DARK_GREY; // industry
+	owner_colours[OWNER_END]     = PC_BLACK;
+
+	MinimapScreenCallback(userdata, buf, y, pitch, n, [&](TileIndex tile) -> PixelColour {
+		return owner_colours[GetMinimapOwner(tile)];
+	});
+}
+
+static void TopographyScreenCallback(void *userdata, void *buf, uint y, uint pitch, uint n)
+{
+	MinimapScreenCallback(userdata, buf, y, pitch, n, GetTopographyValue);
+}
+
+static void IndustryScreenCallback(void *userdata, void *buf, uint y, uint pitch, uint n)
+{
+	MinimapScreenCallback(userdata, buf, y, pitch, n, GetIndustryValue);
+}
+
+/**
+ * Make a minimap screenshot.
+ * @return \c true iff the screenshot was made successfully.
+ */
+bool MakeMinimapWorldScreenshot(std::string_view name)
+{
+	_screenshot_name = name;
+
+	auto provider = GetScreenshotProvider();
+	if (provider == nullptr) return false;
+
+	return provider->MakeImage(MakeScreenshotName(SCREENSHOT_NAME, provider->GetName()), MinimapScreenCallback, nullptr, Map::SizeX(), Map::SizeY(), 32, _cur_palette.palette);
+}
+
+/**
+ * Make a topography screenshot.
+ */
+bool MakeTopographyScreenshot(std::string_view name)
+{
+	_screenshot_name = name;
+
+	auto provider = GetScreenshotProvider();
+	if (provider == nullptr) return false;
+
+	return provider->MakeImage(MakeScreenshotName(SCREENSHOT_NAME, provider->GetName()), TopographyScreenCallback, nullptr, Map::SizeX(), Map::SizeY(), 32, _cur_palette.palette);
+}
+
+/**
+ * Make an industry screenshot.
+ */
+bool MakeIndustryScreenshot(std::string_view name)
+{
+	_screenshot_name = name;
+
+	auto provider = GetScreenshotProvider();
+	if (provider == nullptr) return false;
+
+	return provider->MakeImage(MakeScreenshotName(SCREENSHOT_NAME, provider->GetName()), IndustryScreenCallback, nullptr, Map::SizeX(), Map::SizeY(), 32, _cur_palette.palette);
+}

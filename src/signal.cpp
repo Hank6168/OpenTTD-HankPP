@@ -1,0 +1,2182 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file signal.cpp Functions related to rail signals updating. */
+
+#include "stdafx.h"
+#include "debug.h"
+#include "station_map.h"
+#include "tunnelbridge_map.h"
+#include "vehicle_func.h"
+#include "viewport_func.h"
+#include "train.h"
+#include "company_base.h"
+#include "gui.h"
+#include "table/strings.h"
+#include "programmable_signals.h"
+#include "error.h"
+#include "infrastructure_func.h"
+#include "tunnelbridge.h"
+#include "bridge_signal_map.h"
+#include "newgrf_newsignals.h"
+#include "core/checksum_func.hpp"
+#include "core/hash_func.hpp"
+#include "pathfinder/follow_track.hpp"
+#include "3rdparty/cpp-btree/btree_set.h"
+
+#include "table/signal_data.h"
+
+#include "safeguards.h"
+
+uint8_t _extra_aspects = 0;
+uint64_t _aspect_cfg_hash = 0;
+SignalStyleMasks _signal_style_masks = {};
+bool _signal_sprite_oversized = false;
+
+/// Programmable pre-signal dependencies.
+struct SignalDependencyRecord {
+	SignalReference src;
+	SignalReference dependant;
+
+	bool operator==(const SignalDependencyRecord &) const = default;
+	auto operator<=>(const SignalDependencyRecord &) const = default;
+
+	SignalDependencyRecord(SignalReference src) : src(src), dependant(SignalReference({}, {})) {}
+	SignalDependencyRecord(SignalReference src, SignalReference dependant) : src(src), dependant(dependant) {}
+};
+static btree::btree_set<SignalDependencyRecord> _signal_dependencies;
+
+static void MarkDependencidesForUpdate(SignalReference sig);
+
+/** these are the maximums used for updating signal blocks */
+static const uint SIG_TBU_SIZE    =  64; ///< number of signals entering to block
+static const uint SIG_TBD_SIZE    = 256; ///< number of intersections - open nodes in current block
+static const uint SIG_GLOB_SIZE   = 128; ///< number of open blocks (block can be opened more times until detected)
+static const uint SIG_GLOB_UPDATE =  64; ///< how many items need to be in _globset to force update
+
+static_assert(SIG_GLOB_UPDATE <= SIG_GLOB_SIZE);
+
+/** Accessible TrackBits from a given enter direction. */
+static constexpr DiagDirectionIndexArray<TrackBits> _enterdir_to_trackbits{
+	TRACK_BIT_3WAY_NE,
+	TRACK_BIT_3WAY_SE,
+	TRACK_BIT_3WAY_SW,
+	TRACK_BIT_3WAY_NW
+};
+
+/** Accessible TrackdirBits from a given enter direction. */
+static constexpr DiagDirectionIndexArray<TrackdirBits> _enterdir_to_trackdirbits{
+	TRACKDIR_BIT_X_SW | TRACKDIR_BIT_UPPER_W | TRACKDIR_BIT_RIGHT_S,
+	TRACKDIR_BIT_Y_NW | TRACKDIR_BIT_LOWER_W | TRACKDIR_BIT_RIGHT_N,
+	TRACKDIR_BIT_X_NE | TRACKDIR_BIT_LOWER_E | TRACKDIR_BIT_LEFT_N,
+	TRACKDIR_BIT_Y_SE | TRACKDIR_BIT_UPPER_E | TRACKDIR_BIT_LEFT_S
+};
+
+SignalType NextSignalType(SignalType cur, SignalCycleGroups which_signals)
+{
+	if (which_signals == SCG_CURRENT_GROUP) which_signals = IsPbsSignal(cur) ? SCG_PBS : SCG_BLOCK;
+	bool pbs   = which_signals & SCG_PBS;
+	bool block = which_signals & SCG_BLOCK;
+
+	if (_settings_game.vehicle.train_braking_model == TBM_REALISTIC) {
+		switch (cur) {
+			case SignalType::Path:       return SignalType::PathOneWay;
+			case SignalType::PathOneWay: return block ? SignalType::Block : SignalType::Path;
+			default:                     return SignalType::Path;
+		}
+	}
+
+	switch(cur) {
+		case SignalType::Block:      return block ? SignalType::Entry      : SignalType::Path;
+		case SignalType::Entry:      return block ? SignalType::Exit       : SignalType::Path;
+		case SignalType::Exit:       return block ? SignalType::Combo      : SignalType::Path;
+		case SignalType::Combo:      return pbs   ? SignalType::Path       : SignalType::Block;
+		case SignalType::Prog:       return pbs   ? SignalType::Path       : SignalType::Block;
+		case SignalType::Path:       return pbs   ? SignalType::PathOneWay : SignalType::Block;
+		case SignalType::PathOneWay: return block ? SignalType::Block      : SignalType::Path;
+		case SignalType::NoEntry:    return pbs   ? SignalType::Path       : SignalType::Block;
+		default:
+			Debug(map, 0, "Attempt to cycle from signal type {}", cur);
+			return SignalType::Block; // Fortunately mostly harmless
+	}
+}
+
+/**
+ * Set containing 'items' items of 'tile and Tdir'
+ * No tree structure is used because it would cause
+ * slowdowns in most usual cases
+ */
+template <typename Tdir, uint items>
+struct SmallSet {
+private:
+	uint n = 0; ///< Actual number of units.
+	bool overflowed = false; ///< Did we try to overflow the set?
+	const std::string_view name; ///< Name, used for debugging purposes...
+
+	/** Element of set */
+	struct SSdata {
+		TileIndex tile;
+		Tdir dir;
+	} data[items];
+
+public:
+	/**
+	 * Constructor - just set default values and 'name'
+	 * @param name The name of the set.
+	 */
+	SmallSet(std::string_view name) : name(name) { }
+
+	/** Reset variables to default values */
+	void Reset()
+	{
+		this->n = 0;
+		this->overflowed = false;
+	}
+
+	/**
+	 * Returns value of 'overflowed'
+	 * @return did we try to overflow the set?
+	 */
+	bool Overflowed()
+	{
+		return this->overflowed;
+	}
+
+	/**
+	 * Checks for empty set
+	 * @return is the set empty?
+	 */
+	bool IsEmpty()
+	{
+		return this->n == 0;
+	}
+
+	/**
+	 * Checks for full set
+	 * @return is the set full?
+	 */
+	bool IsFull()
+	{
+		return this->n == lengthof(data);
+	}
+
+	/**
+	 * Reads the number of items
+	 * @return current number of items
+	 */
+	uint Items()
+	{
+		return this->n;
+	}
+
+
+	/**
+	 * Tries to remove first instance of given tile and dir
+	 * @param tile tile
+	 * @param dir and dir to remove
+	 * @return element was found and removed
+	 */
+	bool Remove(TileIndex tile, Tdir dir)
+	{
+		for (uint i = 0; i < this->n; i++) {
+			if (this->data[i].tile == tile && this->data[i].dir == dir) {
+				this->data[i] = this->data[--this->n];
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Tries to find given tile and dir in the set
+	 * @param tile tile
+	 * @param dir and dir to find
+	 * @return true iff the tile & dir element was found
+	 */
+	bool IsIn(TileIndex tile, Tdir dir)
+	{
+		for (uint i = 0; i < this->n; i++) {
+			if (this->data[i].tile == tile && this->data[i].dir == dir) return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Adds tile & dir into the set, checks for full set
+	 * Sets the 'overflowed' flag if the set was full
+	 * @param tile tile
+	 * @param dir and dir to add
+	 * @return true iff the item could be added (set wasn't full)
+	 */
+	bool Add(TileIndex tile, Tdir dir)
+	{
+		if (this->IsFull()) {
+			overflowed = true;
+			Debug(misc, 0, "SignalSegment too complex. Set {} is full (maximum {})", name, items);
+			return false; // set is full
+		}
+
+		this->data[this->n].tile = tile;
+		this->data[this->n].dir = dir;
+		this->n++;
+
+		return true;
+	}
+
+	/**
+	 * Reads the last added element into the set
+	 * @param tile pointer where tile is written to
+	 * @param dir pointer where dir is written to
+	 * @return false iff the set was empty
+	 */
+	bool Get(TileIndex *tile, Tdir *dir)
+	{
+		if (this->n == 0) return false;
+
+		this->n--;
+		*tile = this->data[this->n].tile;
+		*dir = this->data[this->n].dir;
+
+		return true;
+	}
+};
+
+static SmallSet<Trackdir, SIG_TBU_SIZE> _tbuset("_tbuset");         ///< set of signals that will be updated
+static SmallSet<Trackdir, SIG_TBU_SIZE> _tbpset("_tbpset");         ///< set of PBS signals to update the aspect of
+static SmallSet<DiagDirection, SIG_TBD_SIZE> _tbdset("_tbdset");    ///< set of open nodes in current signal block
+static SmallSet<DiagDirection, SIG_GLOB_SIZE> _globset("_globset"); ///< set of places to be updated in following runs
+
+static uint _num_signals_evaluated; ///< Number of programmable pre-signals evaluated
+
+/** Check whether there is a train on rail, not in a depot */
+static bool IsTrainNotInDepot(const Train *t)
+{
+	return t->track != TRACK_BIT_DEPOT;
+}
+
+/** Check whether there is a train only on ramp. */
+static bool IsTrainInWormholeTile(const TileIndex veh_tile, const TileIndex portal_tile)
+{
+	for (const Train *v : VehiclesOnTile<VehicleType::Train>(veh_tile)) {
+		/* Only look for front engine or last wagon. */
+		if ((v->Previous() != nullptr && v->Next() != nullptr)) continue;
+		if (portal_tile != TileVirtXY(v->x_pos, v->y_pos)) continue;
+		if (!(v->track & TRACK_BIT_WORMHOLE) && !(v->track & GetAcrossTunnelBridgeTrackBits(portal_tile))) continue;
+
+		return true;
+	}
+	return false;
+}
+
+/**
+ * Perform some operations before adding data into Todo set
+ * The new and reverse direction is removed from _globset, because we are sure
+ * it doesn't need to be checked again
+ * Also, remove reverse direction from _tbdset
+ * This is the 'core' part so the graph searching won't enter any tile twice
+ *
+ * @param t1 tile we are entering
+ * @param d1 direction (tile side) we are entering
+ * @param t2 tile we are leaving
+ * @param d2 direction (tile side) we are leaving
+ * @return false iff reverse direction was in Todo set
+ */
+static inline bool CheckAddToTodoSet(TileIndex t1, DiagDirection d1, TileIndex t2, DiagDirection d2)
+{
+	_globset.Remove(t1, d1); // it can be in Global but not in Todo
+	_globset.Remove(t2, d2); // remove in all cases
+
+	assert(!_tbdset.IsIn(t1, d1)); // it really shouldn't be there already
+
+	return !_tbdset.Remove(t2, d2);
+}
+
+
+/**
+ * Perform some operations before adding data into Todo set
+ * The new and reverse direction is removed from Global set, because we are sure
+ * it doesn't need to be checked again
+ * Also, remove reverse direction from Todo set
+ * This is the 'core' part so the graph searching won't enter any tile twice
+ *
+ * @param t1 tile we are entering
+ * @param d1 direction (tile side) we are entering
+ * @param t2 tile we are leaving
+ * @param d2 direction (tile side) we are leaving
+ * @return false iff the Todo buffer would be overrun
+ */
+static inline bool MaybeAddToTodoSet(TileIndex t1, DiagDirection d1, TileIndex t2, DiagDirection d2)
+{
+	if (!CheckAddToTodoSet(t1, d1, t2, d2)) return true;
+
+	return _tbdset.Add(t1, d1);
+}
+
+
+/** Current signal block state flags */
+enum SigFlags : uint8_t {
+	SF_NONE     = 0,
+	SF_TRAIN    = 1 << 0, ///< train found in segment
+	SF_FULL     = 1 << 1, ///< some of buffers was full, do not continue
+	SF_PBS      = 1 << 2, ///< pbs signal found
+	SF_JUNCTION = 1 << 3, ///< junction found
+};
+
+DECLARE_ENUM_AS_BIT_SET(SigFlags)
+
+struct SigInfo {
+	inline SigInfo()
+	{
+		flags = SF_NONE;
+		num_exits = 0;
+		num_green = 0;
+		out_signal_tile = INVALID_TILE;
+		out_signal_trackdir = INVALID_TRACKDIR;
+	}
+	SigFlags flags;
+	uint num_exits;
+	uint num_green;
+	TileIndex out_signal_tile;
+	Trackdir out_signal_trackdir;
+};
+
+/**
+ * Search signal block
+ *
+ * @param owner owner whose signals we are updating
+ * @return SigFlags
+ */
+static SigInfo ExploreSegment(Owner owner)
+{
+	SigInfo info;
+
+	TileIndex tile = INVALID_TILE; // Stop GCC from complaining about a possibly uninitialized variable (issue #8280).
+	DiagDirection enterdir = DiagDirection::Invalid;
+
+	while (_tbdset.Get(&tile, &enterdir)) { // tile and enterdir are initialized here, unless I'm mistaken.
+		TileIndex oldtile = tile; // tile we are leaving
+		DiagDirection exitdir = enterdir == DiagDirection::Invalid ? DiagDirection::Invalid : ReverseDiagDir(enterdir); // expected new exit direction (for straight line)
+
+		switch (GetTileType(tile)) {
+			case TileType::Railway: {
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) continue;
+
+				if (IsRailDepot(tile)) {
+					if (enterdir == DiagDirection::Invalid) { // from 'inside' - train just entered or left the depot
+						info.flags |= SF_JUNCTION;
+						if (!(info.flags & SF_TRAIN) && HasVehicleOnTile<VehicleType::Train>(tile, IsTrainNotInDepot)) info.flags |= SF_TRAIN;
+						exitdir = GetRailDepotDirection(tile);
+						tile += TileOffsByDiagDir(exitdir);
+						enterdir = ReverseDiagDir(exitdir);
+						break;
+					} else if (enterdir == GetRailDepotDirection(tile)) { // entered a depot
+						info.flags |= SF_JUNCTION;
+						if (!(info.flags & SF_TRAIN) && HasVehicleOnTile<VehicleType::Train>(tile, IsTrainNotInDepot)) info.flags |= SF_TRAIN;
+						continue;
+					} else {
+						continue;
+					}
+				}
+
+				assert(IsValidDiagDirection(enterdir));
+				TrackBits tracks = GetTrackBits(tile); // trackbits of tile
+				TrackBits tracks_masked = static_cast<TrackBits>(tracks & _enterdir_to_trackbits[enterdir]); // only accessible trackbits
+
+				if (tracks == TRACK_BIT_HORZ || tracks == TRACK_BIT_VERT) { // there is exactly one accessible track, no need to check
+					tracks = tracks_masked;
+					/* If no train detected yet, and there is not no train -> there is a train -> set the flag */
+					if (!(info.flags & SF_TRAIN) && EnsureNoTrainOnTrackBits(tile, tracks).Failed()) info.flags |= SF_TRAIN;
+				} else {
+					if (tracks_masked == TRACK_BIT_NONE) continue; // no accessible track
+					if (!(info.flags & SF_TRAIN) && HasVehicleOnTile<VehicleType::Train>(tile, IsTrainNotInDepot)) info.flags |= SF_TRAIN;
+				}
+
+				if (HasSignals(tile)) { // there is exactly one track - not zero, because there is exit from this tile
+					Track track = TrackBitsToTrack(tracks_masked); // mask TRACK_BIT_X and Y too
+					if (HasSignalOnTrack(tile, track)) { // now check whole track, not trackdir
+						SignalType sig = GetSignalType(tile, track);
+						Trackdir trackdir = static_cast<Trackdir>(FindFirstBit(TrackBitsToTrackdirBits(tracks) & _enterdir_to_trackdirbits[enterdir]));
+						Trackdir reversedir = ReverseTrackdir(trackdir);
+						/* add (tile, reversetrackdir) to 'to-be-updated' set when there is
+						 * ANY conventional signal in REVERSE direction
+						 * (if it is a presignal EXIT and it changes, it will be added to 'to-be-done' set later) */
+						if (HasSignalOnTrackdir(tile, reversedir)) {
+							if (IsNoEntrySignal(sig)) {
+								info.flags |= SF_PBS | SF_JUNCTION;
+							} else {
+								if (IsPbsSignalNonExtended(sig)) info.flags |= SF_PBS;
+								if (IsPbsSignal(sig) && (GetRailReservationTrackBits(tile) & TrackToTrackBits(track)) != TRACK_BIT_NONE) {
+									/* Effectively PBS signal is already reserved */
+									info.flags |= SF_JUNCTION;
+									if (_extra_aspects > 0 && GetSignalStateByTrackdir(tile, reversedir) == SignalState::Green && !IsRailSpecialSignalAspect(tile, track)) {
+										_tbpset.Add(tile, reversedir);
+									}
+								} else if (sig == SignalType::Path) {
+									/* Bidirectional PBS signals should stay red if not reserved */
+									info.flags |= SF_JUNCTION;
+								} else if (!_tbuset.Add(tile, reversedir)) {
+									info.flags |= SF_FULL;
+									return info;
+								}
+							}
+						}
+
+						if (HasSignalOnTrackdir(tile, trackdir)) {
+							if (!IsOnewaySignal(sig) || IsNoEntrySignal(sig)) info.flags |= SF_PBS | SF_JUNCTION;
+							if (_extra_aspects > 0) {
+								info.out_signal_tile = tile;
+								info.out_signal_trackdir = trackdir;
+							}
+							if ((info.flags & SF_JUNCTION) == 0 && GetSignalAlwaysReserveThrough(tile, track) && GetSignalStateByTrackdir(tile, trackdir) == SignalState::Red) {
+								/* A red always reserve through signal indicates that this signal should not be considered auto-green */
+								info.flags |= SF_JUNCTION;
+							}
+							if ((info.flags & (SF_PBS | SF_JUNCTION)) != (SF_PBS | SF_JUNCTION) && GetSignalSpecialPropagationFlag(tile, track)) {
+								/* These checks can be skipped if SF_PBS and SF_JUNCTION are both already set */
+								const TraceRestrictProgram *prog = GetExistingTraceRestrictProgram(tile, track);
+								if (prog != nullptr && (prog->actions_used_flags & TRPAUF_RESERVE_THROUGH) && GetSignalStateByTrackdir(tile, trackdir) == SignalState::Red) {
+									/* A red possibly reserve through signal indicates that this signal should not be considered auto-green */
+									info.flags |= SF_JUNCTION;
+								}
+								if (prog != nullptr && prog->actions_used_flags & TRPAUF_PBS_RES_END_WAIT) {
+									/* Reservations ending here could be forced to wait, so treat signals blocks leading up to this signal as PBS */
+									info.flags |= SF_PBS | SF_JUNCTION;
+								}
+							}
+
+							/* if it is a presignal EXIT in OUR direction, count it */
+							if (IsExitSignal(sig)) { // found presignal exit
+								info.num_exits++;
+								if (GetSignalStateByTrackdir(tile, trackdir) == SignalState::Green) { // found green presignal exit
+									info.num_green++;
+								}
+							}
+						}
+
+						continue;
+					}
+				} else if (!HasAtMostOneBit(tracks)) {
+					info.flags |= SF_JUNCTION;
+				}
+
+				for (DiagDirection dir = DiagDirection::Begin; dir < DiagDirection::End; dir++) { // test all possible exit directions
+					if (dir != enterdir && (tracks & _enterdir_to_trackbits[dir])) { // any accessible track?
+						TileIndex newtile = tile + TileOffsByDiagDir(dir);  // new tile to check
+						DiagDirection newdir = ReverseDiagDir(dir); // direction we are entering from
+						if (!MaybeAddToTodoSet(newtile, newdir, tile, dir)) {
+							info.flags |= SF_FULL;
+							return info;
+						}
+					}
+				}
+
+				continue; // continue the while() loop
+				}
+
+			case TileType::Station:
+				if (!HasStationRail(tile)) continue;
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) continue;
+				if (DiagDirToAxis(enterdir) != GetRailStationAxis(tile)) continue; // different axis
+				if (IsStationTileBlocked(tile)) continue; // 'eye-candy' station tile
+
+				if (!(info.flags & SF_TRAIN) && HasVehicleOnTile<VehicleType::Train>(tile, IsTrainNotInDepot)) info.flags |= SF_TRAIN;
+				tile += TileOffsByDiagDir(exitdir);
+				break;
+
+			case TileType::Road:
+				if (!IsLevelCrossing(tile)) continue;
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) continue;
+				if (DiagDirToAxis(enterdir) == GetCrossingRoadAxis(tile)) continue; // different axis
+
+				if (!(info.flags & SF_TRAIN) && HasVehicleOnTile<VehicleType::Train>(tile, IsTrainNotInDepot)) info.flags |= SF_TRAIN;
+				if (_settings_game.vehicle.safer_crossings) info.flags |= SF_PBS | SF_JUNCTION;
+				tile += TileOffsByDiagDir(exitdir);
+				break;
+
+			case TileType::TunnelBridge: {
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) continue;
+				if (GetTunnelBridgeTransportType(tile) != TRANSPORT_RAIL) continue;
+				DiagDirection tunnel_bridge_dir = GetTunnelBridgeDirection(tile);
+
+				if (enterdir == tunnel_bridge_dir) continue;
+
+				TrackBits tracks = GetTunnelBridgeTrackBits(tile);
+				TrackBits across_tracks = GetAcrossTunnelBridgeTrackBits(tile);
+
+				auto check_train_present = [tile, tracks, across_tracks](DiagDirection enterdir) -> bool {
+					if (tracks == TRACK_BIT_HORZ || tracks == TRACK_BIT_VERT) {
+						if (_enterdir_to_trackbits[enterdir] & across_tracks) {
+							return EnsureNoTrainOnTrackBits(tile, TRACK_BIT_WORMHOLE | across_tracks).Failed();
+						} else {
+							return EnsureNoTrainOnTrackBits(tile, tracks & (~across_tracks)).Failed();
+						}
+					} else {
+						return HasVehicleOnTile<VehicleType::Train>(tile, IsTrainNotInDepot);
+					}
+				};
+
+				TrackBits tracks_masked = (TrackBits)(tracks & _enterdir_to_trackbits[enterdir == DiagDirection::Invalid ? tunnel_bridge_dir : enterdir]); // only incidating trackbits
+				if (tracks == TRACK_BIT_HORZ || tracks == TRACK_BIT_VERT) tracks = tracks_masked;
+
+				if (IsTunnelBridgeWithSignalSimulation(tile)) {
+					auto handle_entrance = [&]() {
+						if (_extra_aspects > 0) {
+							info.out_signal_tile = tile;
+							info.out_signal_trackdir = GetTunnelBridgeEntranceTrackdir(tile, tunnel_bridge_dir);
+						}
+						if ((info.flags & (SF_PBS | SF_JUNCTION)) != (SF_PBS | SF_JUNCTION) && GetTunnelBridgeSignalSpecialPropagationFlag(tile)) {
+							/* This check can be skipped if SF_PBS and SF_JUNCTION are both already set */
+							const TraceRestrictProgram *prog = GetExistingTraceRestrictProgram(tile, FindFirstTrack(GetAcrossTunnelBridgeTrackBits(tile)));
+							if (prog != nullptr && prog->actions_used_flags & TRPAUF_PBS_RES_END_WAIT) {
+								/* Reservations ending here could be forced to wait, so treat signals blocks leading up to this signal as PBS */
+								info.flags |= SF_PBS | SF_JUNCTION;
+							}
+						}
+					};
+
+					if (enterdir == DiagDirection::Invalid) {
+						/* Incoming from the wormhole, onto signal */
+						if (!(info.flags & SF_TRAIN) && IsTunnelBridgeSignalSimulationExit(tile)) { // tunnel entrance is ignored
+							if (IsTrainInWormholeTile(GetOtherTunnelBridgeEnd(tile), tile)) info.flags |= SF_TRAIN;
+							if (!(info.flags & SF_TRAIN) && IsTrainInWormholeTile(tile, tile)) info.flags |= SF_TRAIN;
+						}
+						if (IsTunnelBridgeSignalSimulationExit(tile) && !_tbuset.Add(tile, INVALID_TRACKDIR)) {
+							info.flags |= SF_FULL;
+							return info;
+						}
+						if (IsTunnelBridgeSignalSimulationEntrance(tile)) handle_entrance();
+						Trackdir exit_track = GetTunnelBridgeExitTrackdir(tile, tunnel_bridge_dir);
+						exitdir = TrackdirToExitdir(exit_track);
+						enterdir = ReverseDiagDir(exitdir);
+						tile += TileOffsByDiagDir(exitdir); // just skip to next tile
+						break;
+					} else if (_enterdir_to_trackbits[enterdir] & GetAcrossTunnelBridgeTrackBits(tile)) {
+						/* NOT incoming from the wormhole! */
+						if (IsTunnelBridgeSignalSimulationExit(tile)) {
+							if (IsTunnelBridgePBS(tile)) info.flags |= SF_PBS;
+							if (IsTunnelBridgeEffectivelyPBS(tile) && HasAcrossTunnelBridgeReservation(tile)) {
+								/* Effectively PBS exit is already reserved */
+								info.flags |= SF_JUNCTION;
+								if (_extra_aspects > 0 && GetTunnelBridgeExitSignalState(tile) == SignalState::Green && !IsTunnelBridgeSpecialExitSignalAspect(tile)) {
+									Trackdir exit_td = GetTunnelBridgeExitTrackdir(tile, tunnel_bridge_dir);
+									_tbpset.Add(tile, exit_td);
+								}
+							} else if (!_tbuset.Add(tile, INVALID_TRACKDIR)) {
+								info.flags |= SF_FULL;
+								return info;
+							}
+						}
+						if (IsTunnelBridgeSignalSimulationEntrance(tile)) handle_entrance();
+						if (!(info.flags & SF_TRAIN)) {
+							if (IsTrainInWormholeTile(tile, tile)) info.flags |= SF_TRAIN;
+							if (!(info.flags & SF_TRAIN) && IsTunnelBridgeSignalSimulationExit(tile)) {
+								if (IsTrainInWormholeTile(GetOtherTunnelBridgeEnd(tile), tile)) info.flags |= SF_TRAIN;
+							}
+						}
+						continue;
+					}
+				} else if (!HasAtMostOneBit(tracks)) {
+					info.flags |= SF_JUNCTION;
+				}
+				if (enterdir == DiagDirection::Invalid) { // incoming from the wormhole
+					if (!(info.flags & SF_TRAIN) && check_train_present(tunnel_bridge_dir)) info.flags |= SF_TRAIN;
+					enterdir = tunnel_bridge_dir;
+				} else if (enterdir != tunnel_bridge_dir) { // NOT incoming from the wormhole!
+					if (tracks_masked == TRACK_BIT_NONE) continue; // no incidating track
+					if (!(info.flags & SF_TRAIN) && check_train_present(enterdir)) info.flags |= SF_TRAIN;
+				}
+				for (DiagDirection dir = DiagDirection::Begin; dir < DiagDirection::End; dir++) { // test all possible exit directions
+					if (dir != enterdir && (tracks & _enterdir_to_trackbits[dir])) { // any track incidating?
+						if (dir == tunnel_bridge_dir) {
+							if (!MaybeAddToTodoSet(GetOtherTunnelBridgeEnd(tile), DiagDirection::Invalid, tile, DiagDirection::Invalid)) {
+								info.flags |= SF_FULL;
+								return info;
+							}
+						} else {
+							TileIndex newtile = tile + TileOffsByDiagDir(dir);  // new tile to check
+							DiagDirection newdir = ReverseDiagDir(dir); // direction we are entering from
+							if (!MaybeAddToTodoSet(newtile, newdir, tile, dir)) {
+								info.flags |= SF_FULL;
+								return info;
+							}
+						}
+					}
+				}
+				continue; // continue the while() loop
+				}
+
+			default:
+				continue; // continue the while() loop
+		}
+
+		if (!MaybeAddToTodoSet(tile, enterdir, oldtile, exitdir)) {
+			info.flags |= SF_FULL;
+		}
+	}
+
+	return info;
+}
+
+static inline uint8_t ClampAspect(uint aspect)
+{
+	return static_cast<uint8_t>(std::min<uint>(aspect, GetMaximumSignalAspect()));
+}
+
+static uint8_t GetSignalledTunnelBridgeEntranceForwardAspect(TileIndex tile, TileIndex tile_exit)
+{
+	if (!IsTunnelBridgeSignalSimulationEntrance(tile)) return 0;
+	const uint spacing = GetTunnelBridgeSignalSimulationSpacing(tile);
+	const uint signal_count = GetTunnelBridgeLength(tile, tile_exit) / spacing;
+	if (IsBridge(tile)) {
+		uint8_t aspect = 0;
+		for (uint i = 0; i < signal_count; i++) {
+			if (GetBridgeEntranceSimulatedSignalState(tile, i) == SignalState::Green) {
+				aspect++;
+			} else {
+				return ClampAspect(aspect);
+			}
+		}
+		if (GetTunnelBridgeExitSignalState(tile_exit) == SignalState::Green) {
+			aspect += GetTunnelBridgeExitSignalAspectForInternalPropagation(tile_exit);
+		}
+		return ClampAspect(aspect);
+	} else {
+		int free_tiles = GetAvailableFreeTilesInSignalledTunnelBridge(tile, tile_exit, tile);
+		if (free_tiles == INT_MAX) {
+			uint aspect = signal_count;
+			if (GetTunnelBridgeExitSignalState(tile_exit) == SignalState::Green) {
+				aspect += GetTunnelBridgeExitSignalAspectForInternalPropagation(tile_exit);
+			}
+			return ClampAspect(aspect);
+		} else {
+			if (free_tiles < (int)spacing) return 0;
+			return ClampAspect((free_tiles / spacing) - 1);
+		}
+	}
+}
+
+uint8_t GetForwardAspectFollowingTrack(TileIndex tile, Trackdir trackdir)
+{
+	Owner owner = GetTileOwner(tile);
+	DiagDirection exitdir = TrackdirToExitdir(trackdir);
+	DiagDirection enterdir = ReverseDiagDir(exitdir);
+	bool wormhole = false;
+	if (IsTileType(tile, TileType::TunnelBridge) && TrackdirEntersTunnelBridge(tile, trackdir)) {
+		TileIndex other = GetOtherTunnelBridgeEnd(tile);
+		if (IsTunnelBridgeWithSignalSimulation(tile)) {
+			return GetSignalledTunnelBridgeEntranceForwardAspect(tile, other);
+		}
+		tile = other;
+		wormhole = true;
+	} else {
+		tile += TileOffsByDiagDir(exitdir);
+	}
+	while (true) {
+		switch (GetTileType(tile)) {
+			case TileType::Railway: {
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) return 0;
+
+				if (IsRailDepot(tile)) {
+					return 0;
+				}
+
+				TrackBits tracks = GetTrackBits(tile); // trackbits of tile
+				TrackBits tracks_masked = (TrackBits)(tracks & _enterdir_to_trackbits[enterdir]); // only incidating trackbits
+
+				if (tracks_masked == TRACK_BIT_NONE) return 0; // no incidating track
+				if (tracks == TRACK_BIT_HORZ || tracks == TRACK_BIT_VERT) tracks = tracks_masked;
+
+				if (!HasAtMostOneBit(tracks)) {
+					TrackBits reserved_bits = GetRailReservationTrackBits(tile) & tracks_masked;
+					if (reserved_bits == TRACK_BIT_NONE) return 0; // no reservation on junction
+					tracks = reserved_bits;
+				}
+
+				Track track = (Track)FindFirstBit(tracks);
+				trackdir = TrackEnterdirToTrackdir(track, ReverseDiagDir(enterdir));
+
+				if (HasSignals(tile)) {
+					if (HasSignalOnTrack(tile, track)) { // now check whole track, not trackdir
+						if (HasSignalOnTrackdir(tile, trackdir)) {
+							if (GetSignalStateByTrackdir(tile, trackdir) == SignalState::Red) return 0;
+							uint8_t aspect = GetSignalAspect(tile, track);
+							AdjustSignalAspectIfNonIncStyle(tile, track, aspect);
+							return aspect;
+						} else if (IsOnewaySignal(tile, track)) {
+							return 0; // one-way signal facing the wrong way
+						}
+					}
+				}
+
+				exitdir = TrackdirToExitdir(trackdir);
+				enterdir = ReverseDiagDir(exitdir);
+				tile += TileOffsByDiagDir(exitdir);
+
+				break;
+			}
+
+			case TileType::Station:
+				if (!HasStationRail(tile)) return 0;
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) return 0;
+				if (DiagDirToAxis(enterdir) != GetRailStationAxis(tile)) return 0; // different axis
+				if (IsStationTileBlocked(tile)) return 0; // 'eye-candy' station tile
+
+				tile += TileOffsByDiagDir(exitdir);
+				break;
+
+			case TileType::Road:
+				if (!IsLevelCrossing(tile)) return 0;
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) return 0;
+				if (DiagDirToAxis(enterdir) == GetCrossingRoadAxis(tile)) return 0; // different axis
+
+				tile += TileOffsByDiagDir(exitdir);
+				break;
+
+			case TileType::TunnelBridge: {
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) return 0;
+				if (GetTunnelBridgeTransportType(tile) != TRANSPORT_RAIL) return 0;
+				if ((enterdir == GetTunnelBridgeDirection(tile)) != wormhole) return 0;
+
+				TrackBits tracks = GetTunnelBridgeTrackBits(tile); // trackbits of tile
+				TrackBits tracks_masked = (TrackBits)(tracks & _enterdir_to_trackbits[enterdir]); // only incidating trackbits
+
+				if (tracks_masked == TRACK_BIT_NONE) return 0; // no incidating track
+				if (tracks == TRACK_BIT_HORZ || tracks == TRACK_BIT_VERT) tracks = tracks_masked;
+
+				if (!HasAtMostOneBit(tracks)) {
+					TrackBits reserved_bits = GetTunnelBridgeReservationTrackBits(tile) & tracks_masked;
+					if (reserved_bits == TRACK_BIT_NONE) return 0; // no reservation on junction
+					tracks = reserved_bits;
+				}
+
+				Track track = (Track)FindFirstBit(tracks);
+				trackdir = TrackEnterdirToTrackdir(track, ReverseDiagDir(enterdir));
+
+				if (IsTunnelBridgeWithSignalSimulation(tile) && HasTrack(GetAcrossTunnelBridgeTrackBits(tile), track)) {
+					return GetSignalAspectGeneric(tile, trackdir, false);
+				}
+
+				if (TrackdirEntersTunnelBridge(tile, trackdir)) {
+					tile = GetOtherTunnelBridgeEnd(tile);
+					enterdir = GetTunnelBridgeDirection(tile);
+					exitdir = ReverseDiagDir(enterdir);
+					wormhole = true;
+				} else {
+					exitdir = TrackdirToExitdir(trackdir);
+					enterdir = ReverseDiagDir(exitdir);
+					tile += TileOffsByDiagDir(exitdir);
+					wormhole = false;
+				}
+				break;
+			}
+
+			default:
+				return 0;
+		}
+	}
+}
+
+static uint8_t GetForwardAspect(const SigInfo &info, TileIndex tile, Trackdir trackdir)
+{
+	if (info.flags & (SF_JUNCTION | SF_PBS)) {
+		return GetForwardAspectFollowingTrack(tile, trackdir);
+	} else {
+		return (info.out_signal_tile != INVALID_TILE) ? GetSignalAspectGeneric(info.out_signal_tile, info.out_signal_trackdir, true) : 0;
+	}
+}
+
+static uint8_t GetForwardAspectAndIncrement(const SigInfo &info, TileIndex tile, Trackdir trackdir, bool combined_normal_mode = false)
+{
+	return IncrementAspectForSignal(GetForwardAspect(info, tile, trackdir), combined_normal_mode);
+}
+
+static inline bool IsRailCombinedNormalShuntSignalStyle(TileIndex tile, Track track)
+{
+	return _signal_style_masks.combined_normal_shunt != 0 && NonZeroSignalStylePossiblyOnTile(tile) && HasBit(_signal_style_masks.combined_normal_shunt, GetSignalStyle(tile, track));
+}
+
+static inline bool IsRailNoAutoGreenStyle(TileIndex tile, Track track)
+{
+	return _signal_style_masks.no_auto_green != 0 && NonZeroSignalStylePossiblyOnTile(tile) && HasBit(_signal_style_masks.no_auto_green, GetSignalStyle(tile, track));
+}
+
+static bool IsPossiblyReserveThroughSignal(TileIndex tile, Track track)
+{
+	if (GetSignalAlwaysReserveThrough(tile, track)) return true;
+
+	if (GetSignalSpecialPropagationFlag(tile, track)) {
+		const TraceRestrictProgram *prog = GetExistingTraceRestrictProgram(tile, track);
+		if (prog != nullptr && (prog->actions_used_flags & TRPAUF_RESERVE_THROUGH)) return true;
+	}
+
+	return false;
+}
+
+/**
+ * Update signals around segment in _tbuset
+ *
+ * @param flags info about segment
+ */
+static void UpdateSignalsAroundSegment(SigInfo info)
+{
+	TileIndex tile = INVALID_TILE; // Stop GCC from complaining about a possibly uninitialized variable (issue #8280).
+	Trackdir trackdir = INVALID_TRACKDIR;
+	Track track = INVALID_TRACK;
+
+	if (_tbuset.Items() > 1) info.flags |= SF_JUNCTION;
+	if (_settings_game.vehicle.train_braking_model == TBM_REALISTIC) {
+		if (info.flags & SF_JUNCTION) info.flags |= SF_TRAIN;
+	}
+
+	auto consider_occupied = [&](bool pbs) {
+		SigFlags occupied_mask = SF_TRAIN;
+		if (pbs) occupied_mask |= SF_JUNCTION;
+		return (info.flags & occupied_mask) != 0;
+	};
+
+	while (_tbuset.Get(&tile, &trackdir)) {
+		if (IsTileType(tile, TileType::TunnelBridge) && IsTunnelBridgeSignalSimulationExit(tile)) {
+			Trackdir exit_td = GetTunnelBridgeExitTrackdir(tile);
+			if (HasAcrossTunnelBridgeReservation(tile)) {
+				if (_extra_aspects > 0 && GetTunnelBridgeExitSignalState(tile) == SignalState::Green && !IsTunnelBridgeSpecialExitSignalAspect(tile)) {
+					uint8_t aspect = GetForwardAspectAndIncrement(info, tile, exit_td, IsTunnelBridgeCombinedNormalShuntSignalStyle(tile));
+					if (aspect != GetTunnelBridgeExitSignalAspect(tile)) {
+						SetTunnelBridgeExitSignalAspect(tile, aspect);
+						MarkTunnelBridgeSignalDirty(tile, true);
+						PropagateAspectChange(tile, exit_td, aspect);
+					}
+				}
+				continue;
+			}
+			SignalState old_state = GetTunnelBridgeExitSignalState(tile);
+			SignalState new_state = consider_occupied(IsTunnelBridgePBS(tile)) ? SignalState::Red : SignalState::Green;
+			if (new_state == SignalState::Green && _signal_style_masks.no_auto_green != 0 && HasBit(_signal_style_masks.no_auto_green, GetTunnelBridgeSignalStyle(tile))) {
+				/* No auto-green for this signal style */
+				new_state = SignalState::Red;
+			}
+			if (new_state == SignalState::Green && GetTunnelBridgeSignalSpecialPropagationFlag(tile) && IsTunnelBridgeEffectivelyPBS(tile)) {
+				const TraceRestrictProgram *prog = GetExistingTraceRestrictProgram(tile, TrackdirToTrack(exit_td));
+				if (prog != nullptr && prog->actions_used_flags & TRPAUF_WAIT_AT_PBS) {
+					/* Reservations starting here could be forced to wait, so default to red */
+					new_state = SignalState::Red;
+				}
+			}
+			bool refresh = false;
+			if (old_state != new_state) {
+				SetTunnelBridgeExitSignalState(tile, new_state);
+				refresh = true;
+			}
+			if (_extra_aspects > 0) {
+				const uint8_t current_aspect = (old_state == SignalState::Green) ? GetTunnelBridgeExitSignalAspect(tile) : 0;
+				uint8_t aspect;
+				if (new_state == SignalState::Green) {
+					aspect = GetForwardAspectAndIncrement(info, tile, exit_td, IsTunnelBridgeCombinedNormalShuntSignalStyle(tile));
+				} else {
+					aspect = 0;
+				}
+				if (aspect != current_aspect || old_state != new_state) {
+					if (new_state == SignalState::Green) SetTunnelBridgeExitSignalAspect(tile, aspect);
+					refresh = true;
+					PropagateAspectChange(tile, exit_td, aspect);
+				}
+			}
+			if (refresh) MarkTunnelBridgeSignalDirty(tile, true);
+
+			continue;
+		}
+
+		assert_msg_tile(HasSignalOnTrackdir(tile, trackdir), tile, "trackdir: {}", trackdir);
+
+		track = TrackdirToTrack(trackdir);
+		SignalType sig = GetSignalType(tile, track);
+		SignalState newstate = SignalState::Green;
+
+		/* Don't change signal state if tile is reserved in PBS mode (PBS signal or realistic braking mode) */
+		if (IsPbsSignal(sig) && HasBit(GetRailReservationTrackBits(tile), track)) {
+			if (_extra_aspects > 0 && GetSignalStateByTrackdir(tile, trackdir) == SignalState::Green && !IsRailSpecialSignalAspect(tile, track)) {
+				uint8_t aspect = GetForwardAspectAndIncrement(info, tile, trackdir, IsRailCombinedNormalShuntSignalStyle(tile, TrackdirToTrack(trackdir)));
+				uint8_t old_aspect = GetSignalAspect(tile, track);
+				if (aspect != old_aspect) {
+					SetSignalAspect(tile, track, aspect);
+					if (old_aspect != 0) MarkSingleSignalDirty(tile, trackdir);
+					PropagateAspectChange(tile, trackdir, aspect);
+				}
+			}
+			continue;
+		}
+
+		/* determine whether the new state is red */
+		if (consider_occupied(IsPbsSignalNonExtended(sig)) || sig == SignalType::NoEntry || IsRailNoAutoGreenStyle(tile, track)) {
+			/* train in the segment, or a junction/equivalent has been found and this signal is being treated as PBS, or this signal type should never be auto-green */
+			newstate = SignalState::Red;
+		} else if (sig == SignalType::Prog &&
+				_num_signals_evaluated > _settings_game.construction.maximum_signal_evaluations) {
+			/* too many cascades */
+			newstate = SignalState::Red;
+			Debug(misc, 0, "Number of programmable pre-signal evaluations exceeded limit at tile: {}", tile);
+		} else {
+			/* is it a bidir combo? - then do not count its other signal direction as exit */
+			if (IsComboSignal(sig) && HasSignalOnTrackdir(tile, ReverseTrackdir(trackdir))) {
+				// Don't count ourselves
+				uint exits = info.num_exits - 1;
+				uint green = info.num_green;
+				if (GetSignalStateByTrackdir(tile, ReverseTrackdir(trackdir)) == SignalState::Green)
+					green--;
+
+				if (sig == SignalType::Prog) { /* Programmable */
+					_num_signals_evaluated++;
+
+					newstate = RunSignalProgram(SignalReference(tile, track), exits, green);
+				} else { /* traditional combo */
+					if (!green && exits) {
+						newstate = SignalState::Red;
+					}
+				}
+			} else { // entry, at least one exit, no green exit
+				if (IsEntrySignal(sig)) {
+					if (sig == SignalType::Prog) {
+						_num_signals_evaluated++;
+						newstate = RunSignalProgram(SignalReference(tile, track), info.num_exits, info.num_green);
+					} else { /* traditional combo */
+						if (!info.num_green && info.num_exits) newstate = SignalState::Red;
+					}
+				}
+			}
+			if (newstate == SignalState::Green && GetSignalSpecialPropagationFlag(tile, track) && IsPbsSignal(sig)) {
+				const TraceRestrictProgram *prog = GetExistingTraceRestrictProgram(tile, track);
+				if (prog != nullptr && prog->actions_used_flags & (TRPAUF_WAIT_AT_PBS | TRPAUF_REVERSE_AT)) {
+					/* Reservations starting here could be forced to wait, so default to red */
+					newstate = SignalState::Red;
+				}
+			}
+		}
+
+		bool refresh = false;
+		const SignalState current_state = GetSignalStateByTrackdir(tile, trackdir);
+
+		if (_extra_aspects > 0) {
+			const uint8_t current_aspect = (current_state == SignalState::Green) ? GetSignalAspect(tile, track) : 0;
+			uint8_t aspect;
+			if (newstate == SignalState::Green) {
+				aspect = 1;
+				if (info.out_signal_tile != INVALID_TILE) {
+					/* Combined normal/shunt signals should never be encountered here as they are PBS-only and so will never be green if not reserved */
+					aspect = IncrementAspectForSignal(GetSignalAspectGeneric(info.out_signal_tile, info.out_signal_trackdir, true), false);
+				}
+			} else {
+				aspect = 0;
+			}
+			if (aspect != current_aspect || newstate != current_state) {
+				SetSignalAspect(tile, track, aspect);
+				refresh = true;
+				PropagateAspectChange(tile, trackdir, aspect);
+			}
+		}
+
+		/* only when the state changes */
+		if (newstate != current_state) {
+			if (IsExitSignal(sig)) {
+				/* for pre-signal exits, add block to the global set */
+				DiagDirection exitdir = TrackdirToExitdir(ReverseTrackdir(trackdir));
+				_globset.Add(tile, exitdir); // do not check for full global set, first update all signals
+
+				// Progsig dependencies
+				MarkDependencidesForUpdate(SignalReference(tile, track));
+			} else if (IsPossiblyReserveThroughSignal(tile, track)) {
+				/* For reserve through signals, add block to the global set */
+				DiagDirection exitdir = TrackdirToExitdir(ReverseTrackdir(trackdir));
+				_globset.Add(tile, exitdir); // do not check for full global set, first update all signals
+			}
+			SetSignalStateByTrackdir(tile, trackdir, newstate);
+			refresh = true;
+		}
+		if (refresh) {
+			MarkSingleSignalDirty(tile, trackdir);
+		}
+	}
+
+	while (_tbpset.Get(&tile, &trackdir)) {
+		if (IsTileType(tile, TileType::TunnelBridge)) {
+			uint8_t aspect = GetForwardAspectAndIncrement(info, tile, trackdir, IsTunnelBridgeCombinedNormalShuntSignalStyle(tile));
+			uint8_t old_aspect = GetTunnelBridgeExitSignalAspect(tile);
+			if (aspect != old_aspect) {
+				SetTunnelBridgeExitSignalAspect(tile, aspect);
+				if (old_aspect != 0) MarkTunnelBridgeSignalDirty(tile, true);
+				PropagateAspectChange(tile, trackdir, aspect);
+			}
+		} else {
+			uint8_t aspect = GetForwardAspectAndIncrement(info, tile, trackdir, IsRailCombinedNormalShuntSignalStyle(tile, TrackdirToTrack(trackdir)));
+			uint8_t old_aspect = GetSignalAspect(tile, track);
+			Track track = TrackdirToTrack(trackdir);
+			if (aspect != old_aspect) {
+				SetSignalAspect(tile, track, aspect);
+				if (old_aspect != 0) MarkSingleSignalDirty(tile, trackdir);
+				PropagateAspectChange(tile, trackdir, aspect);
+			}
+		}
+	}
+}
+
+
+/** Reset all sets after one set overflowed */
+static inline void ResetSets()
+{
+	_tbuset.Reset();
+	_tbpset.Reset();
+	_tbdset.Reset();
+	_globset.Reset();
+}
+
+
+/**
+ * Updates blocks in _globset buffer
+ *
+ * @param owner company whose signals we are updating
+ * @return state of the first block from _globset
+ * @pre Company::IsValidID(owner)
+ */
+static SigSegState UpdateSignalsInBuffer(Owner owner)
+{
+	assert(Company::IsValidID(owner));
+
+	bool first = true;  // first block?
+	SigSegState state = SigSegState::Free; // value to return
+	_num_signals_evaluated = 0;
+
+	TileIndex tile = INVALID_TILE; // Stop GCC from complaining about a possibly uninitialized variable (issue #8280).
+	DiagDirection dir = DiagDirection::Invalid;
+
+	while (_globset.Get(&tile, &dir)) {
+		assert(_tbuset.IsEmpty());
+		assert(_tbdset.IsEmpty());
+
+		/* After updating signal, data stored are always TileType::Railway with signals.
+		 * Other situations happen when data are from outside functions -
+		 * modification of railbits (including both rail building and removal),
+		 * train entering/leaving block, train leaving depot...
+		 */
+		switch (GetTileType(tile)) {
+			case TileType::TunnelBridge: {
+				/* 'optimization assert' - do not try to update signals when it is not needed */
+				assert_tile(GetTunnelBridgeTransportType(tile) == TRANSPORT_RAIL, tile);
+				if (IsTunnel(tile)) assert(dir == DiagDirection::Invalid || dir == ReverseDiagDir(GetTunnelBridgeDirection(tile)));
+				TrackBits across = GetAcrossTunnelBridgeTrackBits(tile);
+				if (dir == DiagDirection::Invalid || _enterdir_to_trackbits[dir] & across) {
+					if (IsTunnelBridgeWithSignalSimulation(tile)) {
+						/* Don't worry about other side of tunnel. */
+						_tbdset.Add(tile, dir);
+					} else {
+						_tbdset.Add(tile, DiagDirection::Invalid);  // we can safely start from wormhole centre
+						_tbdset.Add(GetOtherTunnelBridgeEnd(tile), DiagDirection::Invalid);
+					}
+					break;
+				}
+			}
+				[[fallthrough]];
+
+			case TileType::Railway:
+				if (IsRailDepotTile(tile)) {
+					/* 'optimization assert' do not try to update signals in other cases */
+					assert(dir == DiagDirection::Invalid || dir == GetRailDepotDirection(tile));
+					_tbdset.Add(tile, DiagDirection::Invalid); // start from depot inside
+					break;
+				}
+				[[fallthrough]];
+
+			case TileType::Station:
+			case TileType::Road:
+				if ((TrackdirBitsToTrackBits(GetTileTrackdirBits(tile, TRANSPORT_RAIL, 0)) & _enterdir_to_trackbits[dir]) != TRACK_BIT_NONE) {
+					/* only add to set when there is some 'interesting' track */
+					_tbdset.Add(tile, dir);
+					_tbdset.Add(tile + TileOffsByDiagDir(dir), ReverseDiagDir(dir));
+					break;
+				}
+				[[fallthrough]];
+
+			default:
+				/* jump to next tile */
+				tile = tile + TileOffsByDiagDir(dir);
+				dir = ReverseDiagDir(dir);
+				if ((TrackdirBitsToTrackBits(GetTileTrackdirBits(tile, TRANSPORT_RAIL, 0)) & _enterdir_to_trackbits[dir]) != TRACK_BIT_NONE) {
+					_tbdset.Add(tile, dir);
+					break;
+				}
+				/* happens when removing a rail that wasn't connected at one or both sides */
+				continue; // continue the while() loop
+		}
+
+		assert(!_tbdset.Overflowed()); // it really shouldn't overflow by these one or two items
+		assert(!_tbdset.IsEmpty()); // it wouldn't hurt anyone, but shouldn't happen too
+
+		SigInfo info = ExploreSegment(owner);
+
+		if (first) {
+			first = false;
+			/* SigSegState::Free is set by default */
+			if (info.flags & SF_PBS) {
+				state = SigSegState::Path;
+			} else if ((info.flags & SF_TRAIN) || ((info.num_exits) && !(info.num_green)) || (info.flags & SF_FULL)) {
+				state = SigSegState::Full;
+			}
+		}
+
+		/* do not do anything when some buffer was full */
+		if (info.flags & SF_FULL) {
+			ResetSets(); // free all sets
+			break;
+		}
+
+		UpdateSignalsAroundSegment(info);
+	}
+
+	if (_settings_game.vehicle.train_braking_model == TBM_REALISTIC) state = SigSegState::Path;
+
+	return state;
+}
+
+
+static Owner _last_owner = INVALID_OWNER; ///< last owner whose track was put into _globset
+
+
+/**
+ * Update signals in buffer
+ * Called from 'outside'
+ */
+void UpdateSignalsInBuffer()
+{
+	if (!_globset.IsEmpty()) {
+		UpdateSignalsInBuffer(_last_owner);
+		_last_owner = INVALID_OWNER; // invalidate
+	}
+}
+
+/**
+ * Update signals in buffer if the owner could not be added to the current buffer
+ * Called from 'outside'
+ */
+void UpdateSignalsInBufferIfOwnerNotAddable(Owner owner)
+{
+	if (!_globset.IsEmpty() && !IsOneSignalBlock(owner, _last_owner)) {
+		UpdateSignalsInBuffer(_last_owner);
+		_last_owner = INVALID_OWNER; // invalidate
+	}
+}
+
+
+/**
+ * Add track to signal update buffer
+ *
+ * @param tile tile where we start
+ * @param track track at which ends we will update signals
+ * @param owner owner whose signals we will update
+ */
+void AddTrackToSignalBuffer(TileIndex tile, Track track, Owner owner)
+{
+	static const DiagDirection _search_dir_1[] = {
+		DiagDirection::NE, DiagDirection::SE, DiagDirection::NE, DiagDirection::SE, DiagDirection::SW, DiagDirection::SE
+	};
+	static const DiagDirection _search_dir_2[] = {
+		DiagDirection::SW, DiagDirection::NW, DiagDirection::NW, DiagDirection::SW, DiagDirection::NW, DiagDirection::NE
+	};
+
+	/* do not allow signal updates for two companies in one run,
+	 * if these companies are not part of the same signal block */
+	assert(_globset.IsEmpty() || IsOneSignalBlock(owner, _last_owner));
+
+	_last_owner = owner;
+
+	DiagDirection wormhole_dir = IsTileType(tile, TileType::TunnelBridge) ? GetTunnelBridgeDirection(tile) : DiagDirection::Invalid;
+
+	auto add_dir = [&](DiagDirection dir) {
+		_globset.Add(tile, dir == wormhole_dir ? DiagDirection::Invalid : dir);
+	};
+	add_dir(_search_dir_1[track]);
+	add_dir(_search_dir_2[track]);
+
+	if (_globset.Items() >= SIG_GLOB_UPDATE) {
+		/* too many items, force update */
+		UpdateSignalsInBuffer(_last_owner);
+		_last_owner = INVALID_OWNER;
+	}
+}
+
+
+/**
+ * Add side of tile to signal update buffer
+ *
+ * @param tile tile where we start
+ * @param side side of tile
+ * @param owner owner whose signals we will update
+ */
+void AddSideToSignalBuffer(TileIndex tile, DiagDirection side, Owner owner)
+{
+	/* do not allow signal updates for two companies in one run,
+	 * if these companies are not part of the same signal block */
+	assert(_globset.IsEmpty() || IsOneSignalBlock(owner, _last_owner));
+
+	_last_owner = owner;
+
+	_globset.Add(tile, side);
+
+	if (_globset.Items() >= SIG_GLOB_UPDATE) {
+		/* too many items, force update */
+		UpdateSignalsInBuffer(_last_owner);
+		_last_owner = INVALID_OWNER;
+	}
+}
+
+/**
+ * Update signals, starting at one side of a tile
+ * Will check tile next to this at opposite side too
+ *
+ * @see UpdateSignalsInBuffer()
+ * @param tile tile where we start
+ * @param side side of tile
+ * @param owner owner whose signals we will update
+ * @return the state of the signal segment
+ */
+SigSegState UpdateSignalsOnSegment(TileIndex tile, DiagDirection side, Owner owner)
+{
+	UpdateSignalsInBufferIfOwnerNotAddable(owner);
+	_globset.Add(tile, side);
+
+	_last_owner = INVALID_OWNER;
+	return UpdateSignalsInBuffer(owner);
+}
+
+
+/**
+ * Update signals at segments that are at both ends of
+ * given (existent or non-existent) track
+ *
+ * @see UpdateSignalsInBuffer()
+ * @param tile tile where we start
+ * @param track track at which ends we will update signals
+ * @param owner owner whose signals we will update
+ */
+void SetSignalsOnBothDir(TileIndex tile, Track track, Owner owner)
+{
+	assert(_globset.IsEmpty());
+
+	AddTrackToSignalBuffer(tile, track, owner);
+	UpdateSignalsInBuffer(owner);
+}
+
+void AddSignalDependency(SignalReference on, SignalReference dep)
+{
+	assert(GetTileOwner(on.tile) == GetTileOwner(dep.tile));
+	_signal_dependencies.insert(SignalDependencyRecord(on, dep));
+}
+
+void RemoveSignalDependency(SignalReference on, SignalReference dep)
+{
+	_signal_dependencies.erase(SignalDependencyRecord(on, dep));
+}
+
+void FreeSignalDependencies()
+{
+	_signal_dependencies.clear();
+}
+
+void UpdateSignalDependency(SignalReference sr)
+{
+	Trackdir td = TrackToTrackdir(sr.track);
+	_globset.Add(sr.tile, TrackdirToExitdir(td));
+	_globset.Add(sr.tile, TrackdirToExitdir(ReverseTrackdir(td)));
+}
+
+static void MarkDependencidesForUpdate(SignalReference on)
+{
+	for (auto iter = _signal_dependencies.lower_bound(SignalDependencyRecord(on)); iter != _signal_dependencies.end() && iter->src == on; ++iter) {
+		assert(GetTileOwner(iter->dependant.tile) == GetTileOwner(on.tile));
+		UpdateSignalDependency(iter->dependant);
+	}
+}
+
+void CheckRemoveSignalsFromTile(TileIndex tile)
+{
+	if (!HasSignals(tile)) return;
+
+	TrackBits tb = GetTrackBits(tile);
+	Track tr;
+	while ((tr = RemoveFirstTrack(&tb)) != INVALID_TRACK) {
+		if (HasSignalOnTrack(tile, tr)) CheckRemoveSignal(tile, tr);
+	}
+}
+
+static void NotifyRemovingDependentSignal(SignalReference being_removed, SignalReference dependant)
+{
+	SignalType t = GetSignalType(dependant.tile, dependant.track);
+	if (IsProgrammableSignal(t)) {
+		RemoveProgramDependencies(being_removed, dependant);
+	} else {
+		Debug(misc, 0, "Removing dependency held by non-programmable signal (Unexpected)");
+	}
+}
+
+void CheckRemoveSignal(TileIndex tile, Track track)
+{
+	if (!HasSignalOnTrack(tile, track)) return;
+	SignalReference this_ref(tile, track);
+
+	SignalType t = GetSignalType(tile, track);
+	if (IsProgrammableSignal(t)) {
+		FreeSignalProgram(this_ref);
+	}
+
+	for (auto iter = _signal_dependencies.lower_bound(SignalDependencyRecord(this_ref)); iter != _signal_dependencies.end() && iter->src == this_ref;) {
+		assert(GetTileOwner(iter->dependant.tile) == GetTileOwner(tile));
+		NotifyRemovingDependentSignal(this_ref, iter->dependant);
+		iter = _signal_dependencies.erase(iter);
+	}
+}
+
+uint8_t GetSignalAspectGeneric(TileIndex tile, Trackdir trackdir, bool check_non_inc_style)
+{
+	switch (GetTileType(tile)) {
+		case TileType::Railway:
+			if (HasSignalOnTrackdir(tile, trackdir) && GetSignalStateByTrackdir(tile, trackdir) == SignalState::Green) {
+				uint8_t aspect = GetSignalAspect(tile, TrackdirToTrack(trackdir));
+				if (check_non_inc_style) AdjustSignalAspectIfNonIncStyle(tile, TrackdirToTrack(trackdir), aspect);
+				return aspect;
+			}
+			break;
+
+		case TileType::TunnelBridge:
+			if (IsTunnelBridgeSignalSimulationEntrance(tile) && TrackdirEntersTunnelBridge(tile, trackdir)) {
+				return (GetTunnelBridgeEntranceSignalState(tile) == SignalState::Green) ? GetTunnelBridgeEntranceSignalAspect(tile) : 0;
+			}
+			if (IsTunnelBridgeSignalSimulationExit(tile) && TrackdirExitsTunnelBridge(tile, trackdir)) {
+				return (GetTunnelBridgeExitSignalState(tile) == SignalState::Green) ? GetTunnelBridgeExitSignalAspect(tile) : 0;
+			}
+			break;
+
+		default:
+			break;
+	}
+
+	return 0;
+}
+
+void AdjustSignalAspectIfNonIncStyleIntl(TileIndex tile, Track track, uint8_t &aspect)
+{
+	if (IsTileType(tile, TileType::Railway)) {
+		uint8_t style = GetSignalStyle(tile, track);
+		if (HasBit(_signal_style_masks.combined_normal_shunt, style)) {
+			aspect--;
+			if (aspect == 0) return;
+		}
+		if (HasBit(_signal_style_masks.non_aspect_inc, style)) aspect--;
+	}
+}
+
+static void RefreshBridgeOnExitAspectChange(TileIndex entrance, TileIndex exit)
+{
+	const uint simulated_wormhole_signals = GetTunnelBridgeSignalSimulationSpacing(entrance);
+	const uint bridge_length = GetTunnelBridgeLength(entrance, exit);
+	const TileIndexDiffC offset = TileIndexDiffCByDiagDir(GetTunnelBridgeDirection(entrance));
+	const TileIndexDiff diff = TileDiffXY(offset.x * simulated_wormhole_signals, offset.y * simulated_wormhole_signals);
+	const uint signal_count = bridge_length / simulated_wormhole_signals;
+	if (signal_count == 0) return;
+	TileIndex tile = entrance + ((int)signal_count * diff);
+	const uint redraw_count = std::min<uint>(_extra_aspects, signal_count);
+	for (uint i = 0; i < redraw_count; i++) {
+		MarkSingleBridgeSignalDirty(tile, entrance);
+		tile -= diff;
+	}
+}
+
+void PropagateAspectChange(TileIndex tile, Trackdir trackdir, uint8_t aspect)
+{
+	AdjustSignalAspectIfNonIncStyle(tile, TrackdirToTrack(trackdir), aspect);
+
+	aspect = ClampAspect(aspect + 1);
+	Owner owner = GetTileOwner(tile);
+	DiagDirection exitdir = TrackdirToExitdir(ReverseTrackdir(trackdir));
+	DiagDirection enterdir = ReverseDiagDir(exitdir);
+	bool wormhole = false;
+	if (IsTileType(tile, TileType::TunnelBridge) && TrackdirExitsTunnelBridge(tile, trackdir)) {
+		TileIndex other = GetOtherTunnelBridgeEnd(tile);
+		if (IsBridge(tile)) RefreshBridgeOnExitAspectChange(other, tile);
+		aspect = ClampAspect(GetSignalledTunnelBridgeEntranceForwardAspect(other, tile) + 1);
+		tile = other;
+		wormhole = true;
+	} else {
+		tile += TileOffsByDiagDir(exitdir);
+	}
+	while (true) {
+		switch (GetTileType(tile)) {
+			case TileType::Railway: {
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) return;
+
+				if (IsRailDepot(tile)) {
+					return;
+				}
+
+				TrackBits tracks = GetTrackBits(tile); // trackbits of tile
+				TrackBits tracks_masked = (TrackBits)(tracks & _enterdir_to_trackbits[enterdir]); // only incidating trackbits
+
+				if (tracks_masked == TRACK_BIT_NONE) return; // no incidating track
+				if (tracks == TRACK_BIT_HORZ || tracks == TRACK_BIT_VERT) tracks = tracks_masked;
+
+				if (!HasAtMostOneBit(tracks)) {
+					TrackBits reserved_bits = GetRailReservationTrackBits(tile) & tracks_masked;
+					if (reserved_bits == TRACK_BIT_NONE) return; // no reservation on junction
+					tracks = reserved_bits;
+				}
+
+				Track track = (Track)FindFirstBit(tracks);
+				trackdir = TrackEnterdirToTrackdir(track, ReverseDiagDir(enterdir));
+
+				if (HasSignals(tile)) {
+					if (HasSignalOnTrack(tile, track)) { // now check whole track, not trackdir
+						Trackdir reversedir = ReverseTrackdir(trackdir);
+
+						if (HasSignalOnTrackdir(tile, reversedir)) {
+							if (GetSignalStateByTrackdir(tile, reversedir) == SignalState::Red) return;
+							bool combined_mode = IsRailCombinedNormalShuntSignalStyle(tile, track);
+							const uint8_t current_aspect = GetSignalAspect(tile, track);
+							if (combined_mode && current_aspect == 1) {
+								/* Don't change special combined_normal_shunt aspect */
+								return;
+							}
+							if (combined_mode && aspect > 0) aspect = std::min<uint8_t>(aspect + 1, 7);
+							if (current_aspect == aspect) return; // aspect already correct
+							SetSignalAspect(tile, track, aspect);
+							MarkSingleSignalDirty(tile, reversedir);
+							AdjustSignalAspectIfNonIncStyle(tile, TrackdirToTrack(trackdir), aspect);
+							aspect = ClampAspect(aspect + 1);
+						} else if (IsOnewaySignal(tile, track)) {
+							return; // one-way signal facing the wrong way
+						}
+					}
+				}
+
+				exitdir = TrackdirToExitdir(trackdir);
+				enterdir = ReverseDiagDir(exitdir);
+				tile += TileOffsByDiagDir(exitdir);
+
+				break;
+			}
+
+			case TileType::Station:
+				if (!HasStationRail(tile)) return;
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) return;
+				if (DiagDirToAxis(enterdir) != GetRailStationAxis(tile)) return; // different axis
+				if (IsStationTileBlocked(tile)) return; // 'eye-candy' station tile
+
+				tile += TileOffsByDiagDir(exitdir);
+				break;
+
+			case TileType::Road:
+				if (!IsLevelCrossing(tile)) return;
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) return;
+				if (DiagDirToAxis(enterdir) == GetCrossingRoadAxis(tile)) return; // different axis
+
+				tile += TileOffsByDiagDir(exitdir);
+				break;
+
+			case TileType::TunnelBridge: {
+				if (!IsOneSignalBlock(owner, GetTileOwner(tile))) return;
+				if (GetTunnelBridgeTransportType(tile) != TRANSPORT_RAIL) return;
+				if ((enterdir == GetTunnelBridgeDirection(tile)) != wormhole) return;
+
+				TrackBits tracks = GetTunnelBridgeTrackBits(tile); // trackbits of tile
+				TrackBits tracks_masked = (TrackBits)(tracks & _enterdir_to_trackbits[enterdir]); // only incidating trackbits
+
+				if (tracks_masked == TRACK_BIT_NONE) return; // no incidating track
+				if (tracks == TRACK_BIT_HORZ || tracks == TRACK_BIT_VERT) tracks = tracks_masked;
+
+				if (!HasAtMostOneBit(tracks)) {
+					TrackBits reserved_bits = GetTunnelBridgeReservationTrackBits(tile) & tracks_masked;
+					if (reserved_bits == TRACK_BIT_NONE) return; // no reservation on junction
+					tracks = reserved_bits;
+				}
+
+				Track track = (Track)FindFirstBit(tracks);
+				trackdir = TrackEnterdirToTrackdir(track, ReverseDiagDir(enterdir));
+
+				if (TrackdirEntersTunnelBridge(tile, trackdir)) {
+					TileIndex other = GetOtherTunnelBridgeEnd(tile);
+					if (IsTunnelBridgeWithSignalSimulation(tile)) {
+						/* exit signal */
+						if (!IsTunnelBridgeSignalSimulationExit(tile) || GetTunnelBridgeExitSignalState(tile) != SignalState::Green) return;
+						bool combined_mode = IsTunnelBridgeCombinedNormalShuntSignalStyle(tile);
+						const uint8_t current_aspect = GetTunnelBridgeExitSignalAspect(tile);
+						if (combined_mode && current_aspect == 1) {
+							/* Don't change special combined_normal_shunt aspect */
+							return;
+						}
+						if (combined_mode && aspect > 0) aspect = std::min<uint8_t>(aspect + 1, 7);
+						if (current_aspect == aspect) return; // aspect already correct
+						SetTunnelBridgeExitSignalAspect(tile, aspect);
+						MarkTunnelBridgeSignalDirty(tile, true);
+						if (IsBridge(tile)) RefreshBridgeOnExitAspectChange(other, tile);
+						aspect = ClampAspect(GetSignalledTunnelBridgeEntranceForwardAspect(other, tile) + 1);
+					}
+					enterdir = GetTunnelBridgeDirection(other);
+					exitdir = ReverseDiagDir(enterdir);
+					tile = other;
+					wormhole = true;
+				} else {
+					if (TrackdirEntersTunnelBridge(tile, ReverseTrackdir(trackdir))) {
+						if (IsTunnelBridgeWithSignalSimulation(tile)) {
+							/* entrance signal */
+							if (!IsTunnelBridgeSignalSimulationEntrance(tile) || GetTunnelBridgeEntranceSignalState(tile) != SignalState::Green) return;
+							if (GetTunnelBridgeEntranceSignalAspect(tile) == aspect) return;
+							SetTunnelBridgeEntranceSignalAspect(tile, aspect);
+							MarkTunnelBridgeSignalDirty(tile, false);
+							aspect = ClampAspect(aspect + 1);
+						}
+					}
+					exitdir = TrackdirToExitdir(trackdir);
+					enterdir = ReverseDiagDir(exitdir);
+					tile += TileOffsByDiagDir(exitdir);
+					wormhole = false;
+				}
+				break;
+			}
+
+			default:
+				return;
+		}
+	}
+}
+
+static std::vector<std::pair<TileIndex, Trackdir>> _deferred_aspect_updates;
+
+struct DeferredCombinedNormalShuntModeItem {
+	TileIndex tile;
+	Trackdir trackdir;
+	Order current_order;
+	VehicleOrderID cur_real_order_index;
+	StationID last_station_visited;
+};
+static std::vector<DeferredCombinedNormalShuntModeItem> _deferred_determine_combined_normal_shunt_mode;
+
+struct DeferredLookaheadCombinedNormalShuntModeItem {
+	TileIndex tile;
+	Trackdir trackdir;
+	int lookahead_position;
+};
+static std::vector<DeferredLookaheadCombinedNormalShuntModeItem> _deferred_lookahead_combined_normal_shunt_mode;
+
+void UpdateAspectDeferred(TileIndex tile, Trackdir trackdir)
+{
+	_deferred_aspect_updates.push_back({ tile, trackdir });
+}
+
+static void AddAspectDeferredWithVehicleRecord(const Train *v, TileIndex tile, Trackdir trackdir)
+{
+	DeferredCombinedNormalShuntModeItem &item = _deferred_determine_combined_normal_shunt_mode.emplace_back();
+	item.tile = tile;
+	item.trackdir = trackdir;
+	if (IsRestrictedSignalTile(tile)) {
+		item.current_order = v->current_order;
+		item.cur_real_order_index = v->cur_real_order_index;
+		item.last_station_visited = v->last_station_visited;
+	}
+}
+
+void UpdateAspectDeferredWithVehicleRail(const Train *v, TileIndex tile, Trackdir trackdir)
+{
+	if (_settings_game.vehicle.train_braking_model == TBM_REALISTIC && IsRailCombinedNormalShuntSignalStyle(tile, TrackdirToTrack(trackdir))) {
+		AddAspectDeferredWithVehicleRecord(v, tile, trackdir);
+	}
+	_deferred_aspect_updates.push_back({ tile, trackdir });
+}
+
+void UpdateAspectDeferredWithVehicleTunnelBridgeExit(const Train *v, TileIndex tile, Trackdir trackdir)
+{
+	if (_settings_game.vehicle.train_braking_model == TBM_REALISTIC && IsTunnelBridgeCombinedNormalShuntSignalStyle(tile)) {
+		AddAspectDeferredWithVehicleRecord(v, tile, trackdir);
+	}
+	_deferred_aspect_updates.push_back({ tile, trackdir });
+}
+
+void UpdateLookaheadCombinedNormalShuntSignalDeferred(TileIndex tile, Trackdir trackdir, int lookahead_position)
+{
+	_deferred_lookahead_combined_normal_shunt_mode.push_back({ tile, trackdir, lookahead_position });
+}
+
+void ClearPendingSignalUpdates()
+{
+	_deferred_aspect_updates.clear();
+	_deferred_aspect_updates.shrink_to_fit();
+}
+
+void FlushDeferredAspectUpdates()
+{
+	/* Iterate in reverse order to reduce backtracking when updating the aspects of a new reservation */
+	for (auto iter = _deferred_aspect_updates.rbegin(); iter != _deferred_aspect_updates.rend(); ++iter) {
+		TileIndex tile = iter->first;
+		Trackdir trackdir = iter->second;
+		switch (GetTileType(tile)) {
+			case TileType::Railway:
+				if (HasSignalOnTrackdir(tile, trackdir) && GetSignalStateByTrackdir(tile, trackdir) == SignalState::Green && GetSignalAspect(tile, TrackdirToTrack(trackdir)) == 0) {
+					uint8_t aspect = GetForwardAspectFollowingTrackAndIncrement(tile, trackdir, IsRailCombinedNormalShuntSignalStyle(tile, TrackdirToTrack(trackdir)));
+					SetSignalAspect(tile, TrackdirToTrack(trackdir), aspect);
+					PropagateAspectChange(tile, trackdir, aspect);
+				}
+				break;
+
+			case TileType::TunnelBridge:
+				if (IsTunnelBridgeSignalSimulationEntrance(tile) && TrackdirEntersTunnelBridge(tile, trackdir) &&
+						GetTunnelBridgeEntranceSignalState(tile) == SignalState::Green && GetTunnelBridgeEntranceSignalAspect(tile) == 0) {
+					uint8_t aspect = GetForwardAspectFollowingTrackAndIncrement(tile, trackdir);
+					SetTunnelBridgeEntranceSignalAspect(tile, aspect);
+					PropagateAspectChange(tile, trackdir, aspect);
+				}
+				if (IsTunnelBridgeSignalSimulationExit(tile) && TrackdirExitsTunnelBridge(tile, trackdir) &&
+						GetTunnelBridgeExitSignalState(tile) == SignalState::Green && GetTunnelBridgeExitSignalAspect(tile) == 0) {
+					uint8_t aspect = GetForwardAspectFollowingTrackAndIncrement(tile, trackdir, IsTunnelBridgeCombinedNormalShuntSignalStyle(tile));
+					SetTunnelBridgeExitSignalAspect(tile, aspect);
+					PropagateAspectChange(tile, trackdir, aspect);
+				}
+				break;
+
+			default:
+				break;
+		}
+	}
+	_deferred_aspect_updates.clear();
+}
+
+static void SetCombinedNormalShuntModeSignalToShunt(TileIndex tile, Trackdir trackdir)
+{
+	if (IsTileType(tile, TileType::TunnelBridge)) {
+		SetTunnelBridgeExitSignalAspect(tile, 1);
+	} else {
+		SetSignalAspect(tile, TrackdirToTrack(trackdir), 1);
+	}
+}
+
+void DetermineCombineNormalShuntModeWithLookahead(Train *v, TileIndex tile, Trackdir trackdir, int lookahead_position)
+{
+	size_t count = v->lookahead->items.size();
+	for (size_t i = 0; i < count; i++) {
+		TrainReservationLookAheadItem &item = v->lookahead->items[i];
+		if (item.start == lookahead_position && item.type == TRLIT_SIGNAL && HasBit(item.data_aux, TRSLAI_COMBINED)) {
+			DeferredCombinedNormalShuntModeItem res_item;
+			bool have_orders = false;
+			container_unordered_remove_if(_deferred_determine_combined_normal_shunt_mode, [&](DeferredCombinedNormalShuntModeItem &iter) -> bool {
+				bool found = (iter.tile == tile && iter.trackdir == trackdir);
+				if (found) {
+					res_item = std::move(iter);
+					have_orders = true;
+				}
+				return found;
+			});
+
+			if (IsRestrictedSignalTile(tile)) {
+				const TraceRestrictProgram *prog = GetExistingTraceRestrictProgram(tile, TrackdirToTrack(trackdir));
+				if (prog != nullptr && prog->actions_used_flags & TRPAUF_CMB_SIGNAL_MODE_CTRL) {
+					TraceRestrictProgramResult out;
+					TraceRestrictProgramInput input(tile, trackdir, [](const Train *v, const void *, TraceRestrictPBSEntrySignalAuxField mode) {
+						if (mode == TRPESAF_RES_END_TILE) {
+							return v->lookahead->reservation_end_tile;
+						} else {
+							return INVALID_TILE;
+						}
+					}, nullptr);
+					if (have_orders && (prog->actions_used_flags & TRPAUF_ORDER_CONDITIONALS)) {
+						std::swap(res_item.current_order, v->current_order);
+						std::swap(res_item.cur_real_order_index, v->cur_real_order_index);
+						std::swap(res_item.last_station_visited, v->last_station_visited);
+						prog->Execute(v, input, out);
+						v->current_order = std::move(res_item.current_order);
+						v->cur_real_order_index = res_item.cur_real_order_index;
+						v->last_station_visited = res_item.last_station_visited;
+					} else {
+						prog->Execute(v, input, out);
+					}
+					if (out.flags & TRPRF_SIGNAL_MODE_NORMAL) {
+						return;
+					}
+					if (out.flags & TRPRF_SIGNAL_MODE_SHUNT) {
+						SetCombinedNormalShuntModeSignalToShunt(tile, trackdir);
+						SetBit(item.data_aux, TRSLAI_COMBINED_SHUNT);
+						return;
+					}
+				}
+			}
+
+			for (size_t j = i + 1; j < count; j++) {
+				const TrainReservationLookAheadItem &ahead = v->lookahead->items[j];
+				if (ahead.type == TRLIT_SIGNAL) {
+					if (HasBit(ahead.data_aux, TRSLAI_COMBINED)) return;
+					if (!HasBit(ahead.data_aux, TRSLAI_NO_ASPECT_INC) && !HasBit(ahead.data_aux, TRSLAI_NEXT_ONLY)) return;
+				}
+			}
+
+			if (IsTileType(v->lookahead->reservation_end_tile, TileType::TunnelBridge)) return;
+
+			if (IsRailDepotTile(v->lookahead->reservation_end_tile)) {
+				/* shunt mode */
+				SetCombinedNormalShuntModeSignalToShunt(tile, trackdir);
+				SetBit(item.data_aux, TRSLAI_COMBINED_SHUNT);
+				return;
+			}
+
+			CFollowTrackRail ft(v);
+			if (ft.Follow(v->lookahead->reservation_end_tile, v->lookahead->reservation_end_trackdir)) {
+				if (KillFirstBit(ft.new_td_bits) != TRACKDIR_BIT_NONE) {
+					/* reached a junction tile, shouldn't be reached, just assume normal route */
+					return;
+				}
+
+				TileIndex new_tile = ft.new_tile;
+				Trackdir new_trackdir = FindFirstTrackdir(ft.new_td_bits);
+
+				if (!(IsTileType(new_tile, TileType::Railway) && HasSignalOnTrackdir(new_tile, new_trackdir) && !IsNoEntrySignal(new_tile, TrackdirToTrack(new_trackdir)) &&
+						HasBit(_signal_style_masks.next_only, GetSignalStyle(new_tile, TrackdirToTrack(new_trackdir))))) {
+					/* Didn't find a shunt signal at the end of the reservation */
+					return;
+				}
+			} else {
+				/* end of line, see if this is a bay with a shunt signal on the exit */
+				TileIndex t = v->lookahead->reservation_end_tile;
+				Trackdir td = ReverseTrackdir(v->lookahead->reservation_end_trackdir);
+				while (true) {
+					if (t == tile) {
+						/* Reached this signal, don't follow any further */
+						return;
+					}
+					if (IsTunnelBridgeWithSignalSimulation(t)) return;
+
+					if (IsTileType(t, TileType::Railway) && HasSignalOnTrackdir(t, td)) {
+						/* Found first signal on exit from bay where reservation ends */
+						if (HasBit(_signal_style_masks.next_only, GetSignalStyle(t, TrackdirToTrack(td)))) {
+							/* Shunt signal, use shunt route */
+							break;
+						} else {
+							/* Use normal route */
+							return;
+						}
+					}
+					if (ft.Follow(t, td)) {
+						TrackdirBits bits = ft.new_td_bits & TrackBitsToTrackdirBits(GetReservedTrackbits(ft.new_tile));
+						if (!HasExactlyOneBit(bits)) return;
+
+						t = ft.new_tile;
+						td = FindFirstTrackdir(bits);
+					} else {
+						return;
+					}
+				}
+			}
+
+			/* shunt mode */
+			SetCombinedNormalShuntModeSignalToShunt(tile, trackdir);
+			SetBit(item.data_aux, TRSLAI_COMBINED_SHUNT);
+			return;
+		}
+	}
+}
+
+void FlushDeferredDetermineCombineNormalShuntMode(Train *v)
+{
+	for (const auto &iter : _deferred_lookahead_combined_normal_shunt_mode) {
+		DetermineCombineNormalShuntModeWithLookahead(v, iter.tile, iter.trackdir, iter.lookahead_position);
+	}
+	_deferred_lookahead_combined_normal_shunt_mode.clear();
+
+	for (const auto &iter : _deferred_determine_combined_normal_shunt_mode) {
+		/* Reservation with no associated lookahead, default to a shunt route */
+		SetCombinedNormalShuntModeSignalToShunt(iter.tile, iter.trackdir);
+	}
+	_deferred_determine_combined_normal_shunt_mode.clear();
+}
+
+void UpdateAllSignalAspects()
+{
+	for (TileIndex tile(0); tile != Map::Size(); ++tile) {
+		if (IsTileType(tile, TileType::Railway) && HasSignals(tile)) {
+			TrackBits bits = GetTrackBits(tile);
+			do {
+				Track track = RemoveFirstTrack(&bits);
+				if (HasSignalOnTrack(tile, track)) {
+					Trackdir trackdir = TrackToTrackdir(track);
+					if (!HasSignalOnTrackdir(tile, trackdir)) trackdir = ReverseTrackdir(trackdir);
+					if (GetSignalStateByTrackdir(tile, trackdir) == SignalState::Green && !IsRailSpecialSignalAspect(tile, track)) {
+						uint8_t aspect = GetForwardAspectFollowingTrackAndIncrement(tile, trackdir, IsRailCombinedNormalShuntSignalStyle(tile, track));
+						SetSignalAspect(tile, track, aspect);
+						PropagateAspectChange(tile, trackdir, aspect);
+					}
+				}
+			} while (bits != TRACK_BIT_NONE);
+		} else if (IsTunnelBridgeWithSignalSimulation(tile)) {
+			SetTunnelBridgeCombinedNormalShuntSignalStyle(tile, HasBit(_signal_style_masks.combined_normal_shunt, GetTunnelBridgeSignalStyle(tile)));
+			if (IsTunnelBridgeSignalSimulationEntrance(tile) && GetTunnelBridgeEntranceSignalState(tile) == SignalState::Green) {
+				Trackdir trackdir = GetTunnelBridgeEntranceTrackdir(tile);
+				uint8_t aspect = GetForwardAspectFollowingTrackAndIncrement(tile, trackdir);
+				SetTunnelBridgeEntranceSignalAspect(tile, aspect);
+				PropagateAspectChange(tile, trackdir, aspect);
+			}
+			if (IsTunnelBridgeSignalSimulationExit(tile) && GetTunnelBridgeExitSignalState(tile) == SignalState::Green && !IsTunnelBridgeSpecialExitSignalAspect(tile)) {
+				Trackdir trackdir = GetTunnelBridgeExitTrackdir(tile);
+				uint8_t aspect = GetForwardAspectFollowingTrackAndIncrement(tile, trackdir, IsTunnelBridgeCombinedNormalShuntSignalStyle(tile));
+				SetTunnelBridgeExitSignalAspect(tile, aspect);
+				PropagateAspectChange(tile, trackdir, aspect);
+			}
+		}
+	}
+}
+
+void ClearNewSignalStyleMapping()
+{
+	_new_signal_style_mapping.fill({});
+}
+
+static bool RemapNewSignalStyles(const std::array<NewSignalStyleMapping, MAX_NEW_SIGNAL_STYLES> &new_mapping)
+{
+	const std::array<NewSignalStyleMapping, MAX_NEW_SIGNAL_STYLES> old_mapping = _new_signal_style_mapping;
+	_new_signal_style_mapping = new_mapping;
+
+	uint8_t remap_table[MAX_NEW_SIGNAL_STYLES + 1] = {};
+	remap_table[0] = 0;
+
+	uint8_t next_free = _num_new_signal_styles;
+
+	std::array<bool, MAX_NEW_SIGNAL_STYLES> usage_table;
+	const bool assume_all_styles_in_use = _networking && !_network_server;
+	usage_table.fill(assume_all_styles_in_use);
+	bool usage_table_populated = !assume_all_styles_in_use;
+
+	auto populate_usage_table = [&]() {
+		usage_table_populated = true;
+
+		const uint32_t map_size = Map::Size();
+		for (TileIndex t(0); t < map_size; t++) {
+			if (IsTileType(t, TileType::Railway) && HasSignals(t)) {
+				for (Track track : { TRACK_LOWER, TRACK_UPPER }) {
+					uint8_t old_style = GetSignalStyle(t, track);
+					if (old_style > 0) usage_table[old_style - 1] = true;
+				}
+			}
+			if (IsRailTunnelBridgeTile(t)) {
+				/* Only process west end of tunnel/bridge */
+				uint8_t old_style = GetTunnelBridgeSignalStyle(t);
+				if (old_style > 0) usage_table[old_style - 1] = true;
+			}
+		}
+	};
+
+	bool do_remap = false;
+	for (uint i = 0; i < MAX_NEW_SIGNAL_STYLES; i++) {
+		if (old_mapping[i].grfid == 0) {
+			remap_table[i + 1] = 0;
+			continue;
+		}
+
+		auto find_target = [&]() {
+			for (uint j = 0; j < MAX_NEW_SIGNAL_STYLES; j++) {
+				if (old_mapping[i].grfid == _new_signal_style_mapping[j].grfid && old_mapping[i].grf_local_id == _new_signal_style_mapping[j].grf_local_id) {
+					remap_table[i + 1] = j + 1;
+					if (i != j) {
+						if (!usage_table_populated) populate_usage_table();
+						if (usage_table[i]) do_remap = true;
+					}
+					return;
+				}
+			}
+
+			if (!usage_table_populated) populate_usage_table();
+			if (!usage_table[i]) {
+				/* no signals to remap */
+				remap_table[i + 1] = 0;
+				return;
+			}
+
+			if (next_free < MAX_NEW_SIGNAL_STYLES) {
+				remap_table[i + 1] = next_free + 1;
+				_new_signal_style_mapping[next_free].grfid = old_mapping[i].grfid;
+				_new_signal_style_mapping[next_free].grf_local_id = old_mapping[i].grf_local_id;
+				if (i != next_free) do_remap = true;
+				next_free++;
+			} else {
+				remap_table[i + 1] = 0;
+				do_remap = true;
+			}
+		};
+		find_target();
+	}
+
+	bool signal_remapped = false;
+	if (do_remap) {
+		const uint32_t map_size = Map::Size();
+		for (TileIndex t(0); t < map_size; t++) {
+			if (IsTileType(t, TileType::Railway) && HasSignals(t)) {
+				for (Track track : { TRACK_LOWER, TRACK_UPPER }) {
+					uint8_t old_style = GetSignalStyle(t, track);
+					uint8_t new_style = remap_table[old_style];
+					if (new_style != old_style) {
+						SetSignalStyle(t, track, new_style);
+						signal_remapped = true;
+					}
+				}
+			}
+			if (IsRailTunnelBridgeTile(t)) {
+				uint8_t old_style = GetTunnelBridgeSignalStyle(t);
+				uint8_t new_style = remap_table[old_style];
+				if (new_style != old_style) {
+					SetTunnelBridgeSignalStyle(t, new_style);
+					signal_remapped = true;
+				}
+			}
+		}
+	}
+
+	return signal_remapped;
+}
+
+static void DetermineSignalStyleMapping(std::array<NewSignalStyleMapping, MAX_NEW_SIGNAL_STYLES> &mapping)
+{
+	mapping.fill({});
+
+	for (uint i = 0; i < _num_new_signal_styles; i++) {
+		mapping[i].grfid = _new_signal_styles[i].grffile->grfid;
+		mapping[i].grf_local_id = _new_signal_styles[i].grf_local_id;
+	}
+}
+
+static bool DetermineExtraAspectsVariable()
+{
+	bool changed = false;
+	uint8_t new_extra_aspects = 0;
+	uint8_t default_style_aspects = 0;
+
+	_signal_style_masks = {};
+
+	_enabled_new_signal_styles_mask = 1;
+
+	if (_settings_game.vehicle.train_braking_model == TBM_REALISTIC) {
+		for (RailType r = RAILTYPE_BEGIN; r != RAILTYPE_END; r++) {
+			const RailTypeInfo *rti = GetRailTypeInfo(r);
+			new_extra_aspects = std::max<uint8_t>(new_extra_aspects, rti->signal_extra_aspects);
+			default_style_aspects = std::max<uint8_t>(default_style_aspects, rti->signal_extra_aspects);
+		}
+		for (const GRFFile *grf : _new_signals_grfs) {
+			new_extra_aspects = std::max<uint8_t>(new_extra_aspects, grf->new_signal_extra_aspects);
+			if (HasBit(grf->new_signal_style_mask, 0)) {
+				default_style_aspects = std::max<uint8_t>(default_style_aspects, grf->new_signal_extra_aspects);
+			}
+		}
+	}
+
+	for (uint i = 0; i < _num_new_signal_styles; i++) {
+		if (HasBit(_new_signal_styles[i].style_flags, NSSF_NO_ASPECT_INC)) {
+			SetBit(_signal_style_masks.non_aspect_inc, i + 1);
+			SetBit(_signal_style_masks.no_tunnel_bridge_entrance, i + 1);
+			SetBit(_signal_style_masks.no_tunnel_bridge_exit, i + 1);
+		}
+		if (HasBit(_new_signal_styles[i].style_flags, NSSF_ALWAYS_RESERVE_THROUGH)) {
+			SetBit(_signal_style_masks.always_reserve_through, i + 1);
+			SetBit(_signal_style_masks.no_tunnel_bridge_entrance, i + 1);
+			SetBit(_signal_style_masks.no_tunnel_bridge_exit, i + 1);
+		}
+		if (HasBit(_new_signal_styles[i].style_flags, NSSF_LOOKAHEAD_SINGLE_SIGNAL)) {
+			_new_signal_styles[i].lookahead_extra_aspects = 0;
+			SetBit(_signal_style_masks.next_only, i + 1);
+		} else if (HasBit(_new_signal_styles[i].style_flags, NSSF_LOOKAHEAD_ASPECTS_SET)) {
+			if (_new_signal_styles[i].lookahead_extra_aspects != 255) {
+				_new_signal_styles[i].lookahead_extra_aspects = std::min<uint8_t>(_new_signal_styles[i].lookahead_extra_aspects, _new_signal_styles[i].grffile->new_signal_extra_aspects);
+			}
+		} else {
+			_new_signal_styles[i].lookahead_extra_aspects = _new_signal_styles[i].grffile->new_signal_extra_aspects;
+		}
+		if (HasBit(_new_signal_styles[i].style_flags, NSSF_OPPOSITE_SIDE)) {
+			SetBit(_signal_style_masks.signal_opposite_side, i + 1);
+		}
+		if (HasBit(_new_signal_styles[i].style_flags, NSSF_BOTH_SIDES)) {
+			SetBit(_signal_style_masks.signal_both_sides, i + 1);
+		}
+		if (HasBit(_new_signal_styles[i].style_flags, NSSF_COMBINED_NORMAL_SHUNT)) {
+			SetBit(_signal_style_masks.combined_normal_shunt, i + 1);
+			SetBit(_signal_style_masks.no_tunnel_bridge_entrance, i + 1);
+			SetBit(_signal_style_masks.no_auto_green, i + 1);
+			_new_signal_styles[i].electric_mask &= SignalTypeMask{SignalType::Path, SignalType::PathOneWay, SignalType::NoEntry};
+			_new_signal_styles[i].semaphore_mask &= SignalTypeMask{SignalType::Path, SignalType::PathOneWay, SignalType::NoEntry};
+		}
+		SignalTypeMask mask = static_cast<SignalTypeMask>(0xFF);
+		if (HasBit(_new_signal_styles[i].style_flags, NSSF_REALISTIC_BRAKING_ONLY) && _settings_game.vehicle.train_braking_model != TBM_REALISTIC) {
+			mask = {};
+		} else if (_settings_game.vehicle.train_braking_model == TBM_REALISTIC) {
+			mask &= SignalTypeMask{SignalType::Block, SignalType::Path, SignalType::PathOneWay, SignalType::NoEntry};
+		}
+		if ((_new_signal_styles[i].electric_mask | _new_signal_styles[i].semaphore_mask).Any(mask)) SetBit(_enabled_new_signal_styles_mask, i + 1);
+	}
+	for (uint i = _num_new_signal_styles; i < MAX_NEW_SIGNAL_STYLES; i++) {
+		_new_signal_styles[i].lookahead_extra_aspects = new_extra_aspects;
+	}
+
+	_extra_aspects = new_extra_aspects;
+	_default_signal_style_lookahead_extra_aspects = (default_style_aspects > 0) ? default_style_aspects : 255;
+
+	SimpleChecksum64 checksum;
+	checksum.Update(1); // Version number
+	checksum.Update(SimpleHash32(_extra_aspects));
+	checksum.Update(SimpleHash32(_signal_style_masks.non_aspect_inc));
+	checksum.Update(SimpleHash32(_signal_style_masks.always_reserve_through));
+	checksum.Update(SimpleHash32(_signal_style_masks.combined_normal_shunt));
+	checksum.Update(SimpleHash32(_signal_style_masks.no_auto_green));
+
+	if (checksum.state != _aspect_cfg_hash) {
+		_aspect_cfg_hash = checksum.state;
+		changed = true;
+	}
+
+	if (_extra_aspects == 0) _deferred_aspect_updates.clear();
+
+	return changed;
+}
+
+void UpdateExtraAspectsVariable(bool update_always_reserve_through)
+{
+	std::array<NewSignalStyleMapping, MAX_NEW_SIGNAL_STYLES> new_mapping;
+	DetermineSignalStyleMapping(new_mapping);
+
+	bool style_remap = false;
+	if (new_mapping != _new_signal_style_mapping) {
+		style_remap = RemapNewSignalStyles(new_mapping);
+	}
+
+	bool style_change = DetermineExtraAspectsVariable();
+
+	if (style_remap || style_change) {
+		if (_networking && !_network_server && _game_mode != GameMode::Menu) {
+			const char *msg = "Network client recalculating signal states and/or signal style mappings, this is likely to cause desyncs";
+			Debug(desync, 0, "{}", msg);
+			LogDesyncMsg(msg);
+		}
+
+		UpdateAllSignalReserveThroughBits();
+		if (_extra_aspects > 0) UpdateAllSignalAspects();
+		UpdateAllBlockSignals();
+		MarkWholeScreenDirty();
+	} else if (update_always_reserve_through) {
+		UpdateAllSignalReserveThroughBits();
+	}
+}
+
+void InitialiseExtraAspectsVariable()
+{
+	DetermineSignalStyleMapping(_new_signal_style_mapping);
+	DetermineExtraAspectsVariable();
+}
+
+bool IsRailSpecialSignalAspect(TileIndex tile, Track track)
+{
+	return _signal_style_masks.combined_normal_shunt != 0 && GetSignalAspect(tile, track) == 1 &&
+			HasBit(_signal_style_masks.combined_normal_shunt, GetSignalStyle(tile, track));
+}
+
+bool IsTunnelBridgeSpecialExitSignalAspect(TileIndex tile)
+{
+	return IsTunnelBridgeCombinedNormalShuntSignalStyle(tile) && GetTunnelBridgeExitSignalAspect(tile) == 1;
+}
+
+void UpdateSignalReserveThroughBit(TileIndex tile, Track track, bool update_signal)
+{
+	bool reserve_through = false;
+	if (NonZeroSignalStylePossiblyOnTile(tile) && _signal_style_masks.always_reserve_through != 0 &&
+			HasBit(_signal_style_masks.always_reserve_through, GetSignalStyle(tile, track))) {
+		reserve_through = true;
+	} else {
+		if (IsRestrictedSignal(tile)) {
+			const TraceRestrictProgram *prog = GetExistingTraceRestrictProgram(tile, track);
+			if (prog != nullptr && prog->actions_used_flags & TRPAUF_RESERVE_THROUGH_ALWAYS) reserve_through = true;
+		}
+	}
+
+	if (reserve_through != GetSignalAlwaysReserveThrough(tile, track)) {
+		SetSignalAlwaysReserveThrough(tile, track, reserve_through);
+		if (update_signal) {
+			AddTrackToSignalBuffer(tile, track, GetTileOwner(tile));
+			UpdateSignalsInBuffer();
+		}
+	}
+}
+
+void UpdateAllSignalReserveThroughBits()
+{
+	TileIndex tile(0);
+	do {
+		if (IsTileType(tile, TileType::Railway) && HasSignals(tile)) {
+			TrackBits bits = GetTrackBits(tile);
+			do {
+				Track track = RemoveFirstTrack(&bits);
+				if (HasSignalOnTrack(tile, track)) {
+					UpdateSignalReserveThroughBit(tile, track, false);
+				}
+			} while (bits != TRACK_BIT_NONE);
+		}
+	} while (++tile != Map::Size());
+}
+
+void UpdateSignalSpecialPropagationFlag(TileIndex tile, Track track, const struct TraceRestrictProgram *prog, bool update_signal)
+{
+	if (IsTileType(tile, TileType::Railway)) {
+		UpdateRailSignalSpecialPropagationFlag(tile, track, prog, update_signal);
+	} else {
+		UpdateTunnelBridgeSignalSpecialPropagationFlag(tile, track, prog, update_signal);
+	}
+}
+
+void UpdateRailSignalSpecialPropagationFlag(TileIndex tile, Track track, const TraceRestrictProgram *prog, bool update_signal)
+{
+	bool is_special = (prog != nullptr && prog->actions_used_flags & TRPAUF_SPECIAL_ASPECT_PROPAGATION_FLAG_MASK);
+
+	if (is_special || GetSignalSpecialPropagationFlag(tile, track)) {
+		SetSignalSpecialPropagationFlag(tile, track, is_special);
+		if (update_signal) {
+			AddTrackToSignalBuffer(tile, track, GetTileOwner(tile));
+			UpdateSignalsInBuffer();
+		}
+	}
+}
+
+void UpdateTunnelBridgeSignalSpecialPropagationFlag(TileIndex tile, bool update_signal)
+{
+	if (!IsTunnelBridgeRestrictedSignal(tile) && !GetTunnelBridgeSignalSpecialPropagationFlag(tile)) return;
+
+	Track track = FindFirstTrack(GetAcrossTunnelBridgeTrackBits(tile));
+	UpdateTunnelBridgeSignalSpecialPropagationFlag(tile, track, GetExistingTraceRestrictProgram(tile, track), false);
+}
+
+void UpdateTunnelBridgeSignalSpecialPropagationFlag(TileIndex tile, Track track, const TraceRestrictProgram *prog, bool update_signal)
+{
+	bool is_special = (prog != nullptr && prog->actions_used_flags & TRPAUF_SPECIAL_ASPECT_PROPAGATION_FLAG_MASK);
+
+	if (is_special || GetTunnelBridgeSignalSpecialPropagationFlag(tile)) {
+		SetTunnelBridgeSignalSpecialPropagationFlag(tile, is_special);
+		if (update_signal) {
+			AddTrackToSignalBuffer(tile, track, GetTileOwner(tile));
+			UpdateSignalsInBuffer();
+		}
+	}
+}
+
+void UpdateAllSignalsSpecialPropagationFlag()
+{
+	TileIndex tile(0);
+	do {
+		if (IsTileType(tile, TileType::Railway) && HasSignals(tile)) {
+			TrackBits bits = GetTrackBits(tile);
+			do {
+				Track track = RemoveFirstTrack(&bits);
+				if (HasSignalOnTrack(tile, track)) {
+					UpdateRailSignalSpecialPropagationFlag(tile, track, GetExistingTraceRestrictProgram(tile, track), false);
+				}
+			} while (bits != TRACK_BIT_NONE);
+		} else if (IsTunnelBridgeWithSignalSimulation(tile)) {
+			UpdateTunnelBridgeSignalSpecialPropagationFlag(tile, false);
+		}
+	} while (++tile != Map::Size());
+}

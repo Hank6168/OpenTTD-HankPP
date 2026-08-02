@@ -1,0 +1,199 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file network_query.cpp Query part of the network protocol. */
+
+#include "../stdafx.h"
+
+#include "core/network_game_info.h"
+#include "network_query.h"
+#include "network_gamelist.h"
+#include "../error.h"
+#include "../debug.h"
+
+#include "table/strings.h"
+
+#include "../safeguards.h"
+
+std::vector<std::unique_ptr<QueryNetworkGameSocketHandler>> QueryNetworkGameSocketHandler::queries = {};
+
+NetworkRecvStatus QueryNetworkGameSocketHandler::CloseConnection(NetworkRecvStatus status)
+{
+	assert(status != NETWORK_RECV_STATUS_OKAY);
+	assert(this->sock != INVALID_SOCKET);
+
+	/* Connection is closed, but we never received a packet. Must be offline. */
+	NetworkGame *item = NetworkGameListAddItem(this->connection_string);
+	if (item->refreshing) {
+		item->status = NGLS_OFFLINE;
+		item->refreshing = false;
+
+		UpdateNetworkGameWindow();
+	}
+
+	return status;
+}
+
+/**
+ * Check the connection's state, i.e. is the connection still up?
+ * @return \c true if the connection remains valid, otherwise it will be closed.
+ */
+bool QueryNetworkGameSocketHandler::CheckConnection()
+{
+	std::chrono::steady_clock::duration lag = std::chrono::steady_clock::now() - this->last_packet;
+
+	/* If there was no response in 5 seconds, terminate the query. */
+	if (lag > std::chrono::seconds(5)) {
+		Debug(net, 0, "Timeout while waiting for response from {}", this->connection_string);
+		this->CloseConnection(NETWORK_RECV_STATUS_CONNECTION_LOST);
+		return false;
+	}
+
+	return true;
+}
+
+/**
+ * Check whether we received/can send some data from/to the server and
+ * when that's the case handle it appropriately.
+ * @return true when everything went okay.
+ */
+bool QueryNetworkGameSocketHandler::Receive()
+{
+	if (this->CanSendReceive()) {
+		NetworkRecvStatus res = this->ReceivePackets();
+		if (res != NETWORK_RECV_STATUS_OKAY) {
+			this->CloseConnection(res);
+			return false;
+		}
+	}
+	return true;
+}
+
+/** Send the packets of this socket handler. */
+void QueryNetworkGameSocketHandler::Send()
+{
+	this->SendPackets();
+}
+
+/**
+ * Query the server for server information.
+ * @return The status the network should have.
+ */
+NetworkRecvStatus QueryNetworkGameSocketHandler::SendGameInfo()
+{
+	auto p = std::make_unique<Packet>(this, PacketGameType::ClientGameInfo);
+	p->Send_uint32(FIND_SERVER_EXTENDED_TOKEN);
+	p->Send_uint8(to_underlying(PacketGameType::ServerGameInfoExtended)); // reply type
+	p->Send_uint16(1);                                                    // flags
+	p->Send_uint16(1);                                                    // version (original field, bug workaround)
+	p->Send_uint16(SERVER_GAME_INFO_EXTENDED_MAX_VERSION);                // version (enabled by flag bit 0)
+	this->SendPacket(std::move(p));
+
+	return NETWORK_RECV_STATUS_OKAY;
+}
+
+NetworkRecvStatus QueryNetworkGameSocketHandler::ReceiveServerFull(Packet &)
+{
+	NetworkGame *item = NetworkGameListAddItem(this->connection_string);
+	item->status = NGLS_FULL;
+	item->refreshing = false;
+
+	UpdateNetworkGameWindow();
+
+	return NETWORK_RECV_STATUS_CLOSE_QUERY;
+}
+
+NetworkRecvStatus QueryNetworkGameSocketHandler::ReceiveServerBanned(Packet &)
+{
+	NetworkGame *item = NetworkGameListAddItem(this->connection_string);
+	item->status = NGLS_BANNED;
+	item->refreshing = false;
+
+	UpdateNetworkGameWindow();
+
+	return NETWORK_RECV_STATUS_CLOSE_QUERY;
+}
+
+NetworkRecvStatus QueryNetworkGameSocketHandler::ReceiveServerGameInfo(Packet &p)
+{
+	NetworkGame *item = NetworkGameListAddItem(this->connection_string);
+
+	/* Clear any existing GRFConfig chain. */
+	ClearGRFConfigList(item->info.grfconfig);
+	/* Retrieve the NetworkGameInfo from the packet. */
+	DeserializeNetworkGameInfo(p, item->info);
+	/* Check for compatibility with the client. */
+	CheckGameCompatibility(item->info);
+	/* Ensure we consider the server online. */
+	item->status = NGLS_ONLINE;
+	item->refreshing = false;
+
+	UpdateNetworkGameWindow();
+
+	return NETWORK_RECV_STATUS_CLOSE_QUERY;
+}
+
+NetworkRecvStatus QueryNetworkGameSocketHandler::ReceiveServerGameInfoExtended(Packet &p)
+{
+	NetworkGame *item = NetworkGameListAddItem(this->connection_string);
+
+	/* Clear any existing GRFConfig chain. */
+	ClearGRFConfigList(item->info.grfconfig);
+	/* Retrieve the NetworkGameInfo from the packet. */
+	DeserializeNetworkGameInfoExtended(p, item->info);
+	/* Check for compatibility with the client. */
+	CheckGameCompatibility(item->info, true);
+	/* Ensure we consider the server online. */
+	item->status = NGLS_ONLINE;
+	item->refreshing = false;
+
+	UpdateNetworkGameWindow();
+
+	return NETWORK_RECV_STATUS_CLOSE_QUERY;
+}
+
+NetworkRecvStatus QueryNetworkGameSocketHandler::ReceiveServerError(Packet &p)
+{
+	NetworkErrorCode error = static_cast<NetworkErrorCode>(p.Recv_uint8());
+
+	NetworkGame *item = NetworkGameListAddItem(this->connection_string);
+
+	if (error == NetworkErrorCode::NotExpected) {
+		/* If we query a server that is 1.11.1 or older, we get an
+		 * NetworkErrorCode::NotExpected on requesting the game info. Show to the
+		 * user this server is too old to query.
+		 */
+		item->status = NGLS_TOO_OLD;
+	} else {
+		item->status = NGLS_OFFLINE;
+	}
+	item->refreshing = false;
+
+	UpdateNetworkGameWindow();
+
+	return NETWORK_RECV_STATUS_CLOSE_QUERY;
+}
+
+/**
+ * Check if any query needs to send or receive.
+ */
+/* static */ void QueryNetworkGameSocketHandler::SendReceive()
+{
+	for (auto it = QueryNetworkGameSocketHandler::queries.begin(); it != QueryNetworkGameSocketHandler::queries.end(); /* nothing */) {
+		if (!(*it)->Receive()) {
+			it = QueryNetworkGameSocketHandler::queries.erase(it);
+		} else if (!(*it)->CheckConnection()) {
+			it = QueryNetworkGameSocketHandler::queries.erase(it);
+		} else {
+			it++;
+		}
+	}
+
+	for (auto &query : QueryNetworkGameSocketHandler::queries) {
+		query->Send();
+	}
+}

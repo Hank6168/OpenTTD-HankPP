@@ -1,0 +1,108 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file window_func.h %Window functions not directly related to making/drawing windows. */
+
+#ifndef WINDOW_FUNC_H
+#define WINDOW_FUNC_H
+
+#include "window_type.h"
+#include "window_type_trait.h"
+#include "company_type.h"
+#include "core/enum_type.hpp"
+#include "core/geometry_type.hpp"
+
+#include <bitset>
+
+Window *FindWindowById(WindowClass cls, WindowNumber number);
+Window *FindWindowByClass(WindowClass cls);
+Window *FindWindowByToken(WindowToken token);
+Window *GetMainWindow();
+void ChangeWindowOwner(Owner old_owner, Owner new_owner);
+
+void ResizeWindow(Window *w, int x, int y, bool clamp_to_screen = true, bool schedule_resize = true);
+int PositionMainToolbar(Window *w);
+int PositionStatusbar(Window *w);
+int PositionNewsMessage(Window *w);
+int PositionNetworkChatWindow(Window *w);
+
+int GetMainViewTop();
+int GetMainViewBottom();
+
+void InitWindowSystem();
+void UnInitWindowSystem();
+void ResetWindowSystem();
+void SetupColoursAndInitialWindow();
+void InputLoop();
+
+void InvalidateWindowData(WindowClass cls, WindowNumber number, int data = 0, bool gui_scope = false);
+
+template <typename T> requires std::is_base_of_v<struct PoolIDBase, T>
+void InvalidateWindowData(WindowClass cls, WindowNumber number, T data, bool gui_scope = false) { InvalidateWindowData(cls, number, data.base(), gui_scope); }
+
+template <typename T> requires is_convertible_to_window_invalidation_data_v<T>
+void InvalidateWindowData(WindowClass cls, WindowNumber number, T data, bool gui_scope = false) { InvalidateWindowData(cls, number, to_underlying(data), gui_scope); }
+
+void InvalidateWindowClassesData(WindowClass cls, int data = 0, bool gui_scope = false);
+
+template <typename T> requires std::is_base_of_v<struct PoolIDBase, T>
+void InvalidateWindowClassesData(WindowClass cls, T data, bool gui_scope = false) { InvalidateWindowClassesData(cls, data.base(), gui_scope); }
+
+template <typename T> requires is_convertible_to_window_invalidation_data_v<T>
+void InvalidateWindowClassesData(WindowClass cls, T data, bool gui_scope = false) { InvalidateWindowClassesData(cls, to_underlying(data), gui_scope); }
+
+void CloseNonVitalWindows();
+void CloseAllNonVitalWindows();
+void DeleteAllMessages();
+void CloseConstructionWindows();
+void CloseNetworkClientWindows();
+void HideVitalWindows();
+void ShowVitalWindows();
+
+/**
+ * Re-initialize all windows.
+ * @param zoom_changed Set if windows are being re-initialized due to a zoom level changed.
+ */
+void ReInitAllWindows(bool zoom_changed);
+
+void SetWindowWidgetDirty(WindowClass cls, WindowNumber number, WidgetID widget_index);
+void SetWindowDirty(WindowClass cls, WindowNumber number);
+void SetWindowClassesDirty(WindowClass cls);
+
+void CloseWindowById(WindowClass cls, WindowNumber number, bool force = true, int data = 0);
+void CloseAllWindowsById(WindowClass cls, WindowNumber number, bool force = true, int data = 0);
+void CloseWindowByClass(WindowClass cls, int data = 0);
+
+bool FocusWindowById(WindowClass cls, WindowNumber number);
+
+class WindowClassBitset {
+	std::bitset<to_underlying(WindowClass::End)> data{};
+
+public:
+	bool operator[](WindowClass wc) const { return wc < WindowClass::End ? this->data[to_underlying(wc)] : false; }
+	void set(WindowClass wc) { this->data.set(to_underlying(wc)); }
+	void reset(WindowClass wc) { this->data.reset(to_underlying(wc)); }
+	void clear() { this->data.reset(); }
+	bool none() const { return this->data.none(); }
+
+	void operator &=(const WindowClassBitset other) { this->data &= other.data; }
+};
+
+inline bool HaveWindowByClass(WindowClass wc)
+{
+	extern WindowClassBitset _present_window_types;
+	return _present_window_types[wc];
+}
+
+bool EditBoxInGlobalFocus();
+bool FocusedWindowIsConsole();
+bool FocusedWindowSuppressesTabToFastForward();
+Point GetCaretPosition();
+
+void DumpWindowInfo(struct format_target &buffer, const Window *w);
+
+#endif /* WINDOW_FUNC_H */

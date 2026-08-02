@@ -1,0 +1,169 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file yapf_common.hpp Commonly used classes and utilities for YAPF. */
+
+#ifndef YAPF_COMMON_HPP
+#define YAPF_COMMON_HPP
+
+#include "../../core/bitmath_func.hpp"
+#include "../../tile_type.h"
+#include "../../track_type.h"
+
+/** YAPF origin provider base class - used when origin is one tile / multiple trackdirs */
+template <class Types>
+class CYapfOriginTileT {
+public:
+	typedef typename Types::Tpf Tpf; ///< the pathfinder class (derived from THIS class)
+	typedef typename Types::NodeList::Item Node; ///< this will be our node type
+	typedef typename Node::Key Key; ///< key to hash tables
+
+protected:
+	TileIndex origin_tile; ///< origin tile
+	TrackdirBits origin_trackdirs; ///< origin trackdir mask
+
+	/** @copydoc CYapfBaseT::Yapf */
+	inline Tpf &Yapf()
+	{
+		/* use two lines to avoid false-positive Undefined Behavior Sanitizer warnings when alignof(Tpf) > alignof(*this) and *this does not meet alignof(Tpf) */
+		Tpf *p = static_cast<Tpf *>(this);
+		return *p;
+	}
+
+public:
+	/**
+	 * Set origin tile / trackdir mask.
+	 * @param tile The start tile.
+	 * @param trackdirs The start track directions.
+	 */
+	void SetOrigin(TileIndex tile, TrackdirBits trackdirs)
+	{
+		this->origin_tile = tile;
+		this->origin_trackdirs = trackdirs;
+	}
+
+	/** Called when YAPF needs to place origin nodes into open list */
+	void PfSetStartupNodes()
+	{
+		bool is_choice = (KillFirstBit(this->origin_trackdirs) != TRACKDIR_BIT_NONE);
+		for (TrackdirBits tdb = this->origin_trackdirs; tdb != TRACKDIR_BIT_NONE; tdb = KillFirstBit(tdb)) {
+			Trackdir td = (Trackdir)FindFirstBit(tdb);
+			Node &n1 = Yapf().CreateNewNode();
+			n1.Set(nullptr, this->origin_tile, td, is_choice);
+			Yapf().AddStartupNode(n1);
+		}
+	}
+};
+
+/** YAPF origin provider base class - used when there are two tile/trackdir origins */
+template <class Types>
+class CYapfOriginTileTwoWayT {
+public:
+	typedef typename Types::Tpf Tpf; ///< the pathfinder class (derived from THIS class)
+	typedef typename Types::NodeList::Item Node; ///< this will be our node type
+	typedef typename Node::Key Key; ///< key to hash tables
+
+protected:
+	TileIndex origin_tile; ///< first origin tile
+	Trackdir origin_td; ///< first origin trackdir
+	TileIndex reverse_tile; ///< second (reverse) origin tile
+	Trackdir reverse_td; ///< second (reverse) origin trackdir
+	int reverse_penalty; ///< penalty to be added for using the reverse origin
+
+	/** to access inherited path finder */
+	inline Tpf &Yapf()
+	{
+		/* use two lines to avoid false-positive Undefined Behavior Sanitizer warnings when alignof(Tpf) > alignof(*this) and *this does not meet alignof(Tpf) */
+		Tpf *p = static_cast<Tpf *>(this);
+		return *p;
+	}
+
+public:
+	/**
+	 * Set origin (tiles, trackdirs, etc.).
+	 * @param forward_tile The start tile when going forward.
+	 * @param forward_td The track direction when going forward.
+	 * @param reverse_tile The start tile when going backward.
+	 * @param reverse_td The track direction when going backward.
+	 * @param reverse_penalty The penalty for reversing.
+	 */
+	void SetOrigin(TileIndex forward_tile, Trackdir forward_td, TileIndex reverse_tile = INVALID_TILE,
+			Trackdir reverse_td = INVALID_TRACKDIR, int reverse_penalty = 0)
+	{
+		this->origin_tile = forward_tile;
+		this->origin_td = forward_td;
+		this->reverse_tile = reverse_tile;
+		this->reverse_td = reverse_td;
+		this->reverse_penalty = reverse_penalty;
+	}
+
+	/** Called when YAPF needs to place origin nodes into open list */
+	void PfSetStartupNodes()
+	{
+		if (this->origin_tile != INVALID_TILE && this->origin_td != INVALID_TRACKDIR) {
+			Node &n1 = Yapf().CreateNewNode();
+			n1.Set(nullptr, this->origin_tile, this->origin_td, false);
+			Yapf().AddStartupNode(n1);
+		}
+		if (this->reverse_tile != INVALID_TILE && this->reverse_td != INVALID_TRACKDIR) {
+			Node &n2 = Yapf().CreateNewNode();
+			n2.Set(nullptr, this->reverse_tile, this->reverse_td, false);
+			n2.cost = this->reverse_penalty;
+			Yapf().AddStartupNode(n2);
+		}
+	}
+
+	inline bool HasReverseOrigin() const
+	{
+		return this->reverse_tile != INVALID_TILE;
+	}
+};
+
+/**
+ * YAPF template that uses Ttypes template argument to determine all YAPF
+ *  components (base classes) from which the actual YAPF is composed.
+ *  For example classes consult: CYapfRail_TypesT template and its instantiations:
+ *  CYapfRail1, CYapfRail2, CYapfRail3, CYapfAnyDepotRail1, CYapfAnyDepotRail2, CYapfAnyDepotRail3
+ */
+template <class Ttypes>
+class CYapfT
+	: public Ttypes::PfBase         ///< Instance of CYapfBaseT - main YAPF loop and support base class
+	, public Ttypes::PfCost         ///< Cost calculation provider base class
+	, public Ttypes::PfCache        ///< Segment cost cache provider
+	, public Ttypes::PfOrigin       ///< Origin (tile or two-tile origin)
+	, public Ttypes::PfDestination  ///< Destination detector and distance (estimate) calculation provider
+	, public Ttypes::PfFollow       ///< Node follower (stepping provider)
+{
+};
+
+/**
+ * Calculates the octile distance cost between a starting tile / trackdir and a destination tile.
+ * @param start_tile Starting tile.
+ * @param start_td Starting trackdir.
+ * @param destination_tile Destination tile.
+ * @return Octile distance cost between starting tile / trackdir and destination tile.
+ */
+inline int OctileDistanceCost(TileIndex start_tile, Trackdir start_td, TileIndex destination_tile)
+{
+	static constexpr int dg_dir_to_x_offs[] = {-1, 0, 1, 0};
+	static constexpr int dg_dir_to_y_offs[] = {0, 1, 0, -1};
+
+	const DiagDirection exitdir = TrackdirToExitdir(start_td);
+
+	const int x1 = 2 * TileX(start_tile) + dg_dir_to_x_offs[static_cast<int>(exitdir)];
+	const int y1 = 2 * TileY(start_tile) + dg_dir_to_y_offs[static_cast<int>(exitdir)];
+	const int x2 = 2 * TileX(destination_tile);
+	const int y2 = 2 * TileY(destination_tile);
+	const int dx = abs(x1 - x2);
+	const int dy = abs(y1 - y2);
+	const int dmin = std::min(dx, dy);
+	const int dxy = abs(dx - dy);
+
+	return dmin * YAPF_TILE_CORNER_LENGTH + (dxy - 1) * (YAPF_TILE_LENGTH / 2);
+}
+
+#endif /* YAPF_COMMON_HPP */

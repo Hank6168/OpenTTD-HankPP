@@ -1,0 +1,199 @@
+STR_UNIT_NAME_VELOCITY_IMPERIAL                                 :mph
+STR_UNIT_NAME_VELOCITY_METRIC                                   :km/h
+STR_UNIT_NAME_VELOCITY_SI                                       :m/s
+
+STR_BUTTON_RENAME                                               :{BLACK}名前を変更
+
+STR_MAP_MENU_PLAN_LIST                                          :計画一覧表
+
+STR_VEHICLE_TYPE_TRAINS                                         :列車
+STR_VEHICLE_TYPE_ROAD_VEHICLES                                  :自動車
+STR_VEHICLE_TYPE_SHIPS                                          :船舶
+STR_VEHICLE_TYPE_AIRCRAFT                                       :航空機
+
+STR_CONFIG_SETTING_AUTOSAVE                                     :オートセーブ: {STRING}
+STR_CONFIG_SETTING_AUTOSAVE_HELPTEXT                            :オートセーブの間隔を設定します
+
+STR_CONFIG_SETTING_INTERFACE_DEPARTUREBOARDS                    :{ORANGE}発車標
+STR_CONFIG_SETTING_INTERFACE_TIMETABLE                          :{ORANGE}ダイヤ
+STR_CONFIG_SETTING_INTERFACE_SIGNALS                            :{ORANGE}信号
+
+STR_CONFIG_SETTING_TIMETABLE_IN_TICKS                           :ダイヤの時間単位にゲーム時を使用: {STRING}
+STR_CONFIG_SETTING_TIMETABLE_IN_TICKS_HELPTEXT                  :ダイヤで行程時間を定めるために使われる時間単位を「日」ではなく「ゲーム時」にします。1日は約74ゲーム時に相当します
+
+STR_TRANSPARENT_LOADING_TOOLTIP                                 :{BLACK}積み降ろしインジケーターの透過表示を切り替えます。{}Ctrl+クリックでロックします
+
+STR_BUILD_SIGNAL_TOGGLE_ADVANCED_SIGNAL_TOOLTIP                 :{BLACK}高度な信号の表示切替
+
+# Tracerestrict GUI
+
+# Programmable Pre-Signals
+
+#Town select window (for SE only)
+
+STR_MAPGEN_SNOW_LINE_HEIGHT                                     :{BLACK}雪線の位置:
+STR_MAPGEN_SNOW_LINE_UP                                         :{BLACK}雪線を上げる
+STR_MAPGEN_SNOW_LINE_DOWN                                       :{BLACK}雪線を下げる
+STR_MAPGEN_SNOW_LINE_QUERY_CAPT                                 :{WHITE}雪線の位置を変更
+
+STR_STATION_VIEW_DEPARTURES_BUTTON                              :{BLACK}発車標
+STR_STATION_VIEW_DEPARTURES_TOOLTIP                             :{BLACK}発車標を表示します。
+
+STR_DEPARTURES_CAPTION                                          :{WHITE}{STRING} 発車標
+STR_DEPARTURES_DEPARTURES                                       :{BLACK}{TINY_FONT}発車
+STR_DEPARTURES_ARRIVALS                                         :{BLACK}{TINY_FONT}到着
+STR_DEPARTURES_VIA_BUTTON                                       :{BLACK}経由
+STR_DEPARTURES_VIA_TOOLTIP                                      :{BLACK}通過車両を表示
+STR_DEPARTURES_EMPTY                                            :{ORANGE}現在、ダイヤを設定している車両はありません。
+STR_DEPARTURES_NONE_SELECTED                                    :{ORANGE}発車標が設定されていません。
+STR_DEPARTURES_TIME                                             :{COLOUR}{STRING}
+STR_DEPARTURES_TIME_DEP                                         :{COLOUR}{STRING} {GREEN}{UP_ARROW}
+STR_DEPARTURES_TIME_ARR                                         :{COLOUR}{STRING} {RED}{DOWN_ARROW}
+STR_DEPARTURES_TIME_BOTH                                        :{COLOUR}{STRING} {RED}{DOWN_ARROW} {COLOUR}{STRING} {GREEN}{UP_ARROW}
+STR_DEPARTURES_TERMINUS                                         :{ORANGE}{STRING}{STRING}
+STR_DEPARTURES_TERMINUS_VIA_STATION                             :{ORANGE}{STRING}{STRING} 経由 {STRING}経由
+STR_DEPARTURES_TERMINUS_VIA                                     :{ORANGE}{STRING}{STRING} 経由
+STR_DEPARTURES_VIA                                              :{ORANGE} {STRING} 経由
+STR_DEPARTURES_TOC                                              :{ORANGE}{COMPANY}
+STR_DEPARTURES_GROUP                                            :{ORANGE}{GROUP}
+STR_DEPARTURES_VEH                                              :{ORANGE}{VEHICLE}
+STR_DEPARTURES_CALLING_AT                                       :{ORANGE}停車場:
+STR_DEPARTURES_CALLING_AT_STATION                               :, {STRING}
+STR_DEPARTURES_CALLING_AT_LAST_STATION                          : 終点、{STRING}でございます
+STR_DEPARTURES_CALLING_AT_LIST_SUFFIX                           :
+
+STR_DEPARTURES_TYPE_TRAIN                                       :{ORANGE}{TRAIN}
+STR_DEPARTURES_TYPE_TRAIN_SILVER                                :{SILVER}{TRAIN}
+STR_DEPARTURES_TYPE_BUS                                         :{ORANGE}{BUS}
+STR_DEPARTURES_TYPE_BUS_SILVER                                  :{SILVER}{BUS}
+STR_DEPARTURES_TYPE_LORRY                                       :{ORANGE}{LORRY}
+STR_DEPARTURES_TYPE_LORRY_SILVER                                :{SILVER}{LORRY}
+STR_DEPARTURES_TYPE_PLANE                                       :{ORANGE}{PLANE}
+STR_DEPARTURES_TYPE_PLANE_SILVER                                :{SILVER}{PLANE}
+STR_DEPARTURES_TYPE_SHIP                                        :{ORANGE}{SHIP}
+STR_DEPARTURES_TYPE_SHIP_SILVER                                 :{SILVER}{SHIP}
+
+STR_DEPARTURES_STATION_NONE                                     :
+STR_DEPARTURES_STATION_PORT                                     :{ORANGE} {SHIP}
+STR_DEPARTURES_STATION_AIRPORT                                  :{ORANGE} {PLANE}
+STR_DEPARTURES_STATION_PORTAIRPORT                              :{ORANGE} {SHIP} {PLANE}
+
+STR_DEPARTURES_ON_TIME                                          :{GREEN}定時
+STR_DEPARTURES_ARRIVED                                          :{GREEN}到着しました
+STR_DEPARTURES_DELAYED                                          :{YELLOW}遅れています
+STR_DEPARTURES_EXPECTED                                         :{YELLOW} {STRING}見込み
+STR_DEPARTURES_CANCELLED                                        :{RED}運休
+
+STR_CONFIG_SETTING_DEPARTUREBOARDS                              :{ORANGE}発車標
+STR_CONFIG_DEPARTURE_CALC_FREQUENCY                             :発車標の表示更新タイミング:{STRING} ティック
+STR_CONFIG_DEPARTURE_CALC_FREQUENCY_HELPTEXT                    :発車標の表示を更新するタイミングをティック以内に設定します。
+STR_CONFIG_DEPARTURE_VEHICLE_NAME                               :発車標にて担当車両を表示: {STRING}
+STR_CONFIG_DEPARTURE_VEHICLE_NAME_HELPTEXT                      :発車標にて、担当する車両名を表示します。
+STR_CONFIG_DEPARTURE_GROUP_NAME                                 :発車標にて車両グループを表示: {STRING}
+STR_CONFIG_DEPARTURE_GROUP_NAME_HELPTEXT                        :発車標にて、設定した車両のグループを表示します。
+STR_CONFIG_DEPARTURE_COMPANY_NAME                               :発車標にて会社名を表示: {STRING}
+STR_CONFIG_DEPARTURE_LARGER_FONT                                :発車標の停車場案内を大きいめフォントでの表示: {STRING}
+STR_CONFIG_DEPARTURE_LARGER_FONT_HELPTEXT                       :発車標に表示されている停車場案内を通常より大きいめのフォントで表示します。
+STR_CONFIG_DEPARTURE_DESTINATION_TYPE                           :発車標にて行先が港湾や空港の場合はアイコンを表示: {STRING}
+STR_CONFIG_DEPARTURE_DESTINATION_TYPE_HELPTEXT                  :発車標にて、行先が港湾や空港の場合は、船や飛行機のアイコンを表示します。
+
+# Town tooltip
+
+STR_PURCHASE_INFO_DESIGNED                                      :{BLACK}設計年: {GOLD}{NUM}
+
+STR_VEHICLE_STATUS_TRAIN_STOPPING_VEL_END                       :{RED}減速中　{VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_STATION_VEL_END                  :{LTBLUE}{STATION}へ向かっています　{VELOCITY}
+STR_VEHICLE_STATUS_NO_ORDERS_VEL_END                            :{LTBLUE}指令なし　{VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_WAYPOINT_VEL_END                 :{LTBLUE}{WAYPOINT}へ向かっています　{VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_DEPOT_VEL_END                    :{ORANGE}{DEPOT}へ回送中です　{VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_DEPOT_SERVICE_VEL_END            :{LTBLUE}{DEPOT}へ保守回送中です　{VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_STATION_VEL_END                 :{LTBLUE}{STATION}に到達できません, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_WAYPOINT_VEL_END                :{LTBLUE}{WAYPOINT}に到達できません, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_DEPOT_VEL_END                   :{ORANGE} {DEPOT}車両基地に到達できません, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_DEPOT_SERVICE_VEL_END           :{LTBLUE} {DEPOT}車両基地に到達できません, {VELOCITY}
+
+STR_ORDERS_GO_TO_TOOLTIP_EXTRA                                  :{BLACK}選択した指令の前またはリストの終わりに新規指令を挿入します。Ctrlを押しながら停留施設をクリックした場合は指令に「いずれかの貨物の満載まで待機」、中継駅の場合は「直通運転」、車両庫では「保守回送」がそれぞれ付きます。「指令を共有」またはCtrlを押しながら他の輸送機器をクリックするとその輸送機器と指令を共有します。普通に他の輸送機器をクリックした場合は指令をコピーします。指令で車両庫を経由するよう設定すると自動点検は無効になります
+
+STR_TIMETABLE_ARRIVAL_ABBREVIATION                              :着:
+STR_TIMETABLE_DEPARTURE_ABBREVIATION                            :発:
+
+# Cargo type orders Window
+
+# Plans window
+STR_PLANS_CAPTION                                               :{WHITE}計画一覧表
+STR_PLANS_NEW_PLAN                                              :{BLACK}新規計画
+STR_PLANS_NEW_PLAN_TOOLTIP                                      :{BLACK}新しい計画を作る
+STR_PLANS_ADD_LINES                                             :{BLACK}作成・編集
+STR_PLANS_ADDING_LINES                                          :{BLACK}作成・編集中
+STR_PLANS_HIDE_ALL                                              :{BLACK}全て計画隠す
+STR_PLANS_HIDE_ALL_TOOLTIP                                      :{BLACK}全ての計画を画面から隠します。
+STR_PLANS_SHOW_ALL                                              :{BLACK}全て計画表示
+STR_PLANS_SHOW_ALL_TOOLTIP                                      :{BLACK}全ての計画を画面に表示します。
+STR_PLANS_VISIBILITY_PRIVATE                                    :{BLACK}秘匿にする
+STR_PLANS_VISIBILITY_PUBLIC                                     :{BLACK}公表にする
+STR_PLANS_VISIBILITY_TOOLTIP                                    :{BLACK}計画を秘匿にするか公表にするかを設定します。 公表した計画は他の会社にも表示されていますが、他の会社は編集できません。
+STR_PLANS_DELETE                                                :{BLACK}削除
+STR_PLANS_DELETE_TOOLTIP                                        :{BLACK}計画を削除します
+STR_PLANS_LIST_ITEM_PLAN                                        :第{NUM}計画: {NUM} 線 ({DATE_SHORT})
+STR_PLANS_LIST_ITEM_NAMED_PLAN                                  :{STRING}: {NUM} 線 ({DATE_SHORT})
+STR_PLANS_LIST_ITEM_LINE                                        : -- 第{NUM}線: {NUM} セグメント
+STR_PLANS_LIST_TOOLTIP                                          :{BLACK}ダブルクリックで計画の詳細な表示・編集出来ます。{}Ctrl+クリックでスクロールします。
+STR_PLANS_QUERY_RENAME_PLAN                                     :{WHITE}計画名を変更
+
+# Clear area query
+
+# Plan related errors
+
+STR_TRADITIONAL_TRAIN_NAME                                      :列車{COMMA}
+STR_TRADITIONAL_ROAD_VEHICLE_NAME                               :車両{COMMA}
+STR_TRADITIONAL_SHIP_NAME                                       :船舶{COMMA}
+STR_TRADITIONAL_AIRCRAFT_NAME                                   :航空機{COMMA}
+
+# Scheduled Dispatch
+
+# Modifier key toggle window
+
+STR_CONFIG_SETTING_ALLOW_SHARES                                 :他社株の取引許容: {STRING}
+STR_CONFIG_SETTING_ALLOW_SHARES_HELPTEXT                        :有効にすると、ライバル会社の株式を取引できるようになります。この設定を有効にしても、目的の社が設立から丸5年経過していない場合は取引できません
+
+STR_CONFIG_SETTING_MIN_YEARS_FOR_SHARES                         :株式を取引するための最低会社年齢：{STRING}
+STR_CONFIG_SETTING_MIN_YEARS_FOR_SHARES_HELPTEXT                :他の人が彼らから株式を売買できるように、会社の最低年齢を設定します。
+
+STR_COMPANY_VIEW_SHARES_OWNED_BY                                :{WHITE}({1:COMPANY}が株式の{0:COMMA}%を保有)
+
+STR_COMPANY_VIEW_BUY_SHARE_BUTTON                               :{BLACK}会社株の25%を買収
+STR_COMPANY_VIEW_SELL_SHARE_BUTTON                              :{BLACK}会社株の25%を売却
+STR_COMPANY_VIEW_BUY_SHARE_TOOLTIP                              :{BLACK}この会社の株式の25%を購入します。Shift+クリックで費用を見積もります
+STR_COMPANY_VIEW_SELL_SHARE_TOOLTIP                             :{BLACK}この会社の株式の25%を売却します。Shift+クリックで売却価格の見積が出ます
+
+STR_ERROR_CAN_T_BUY_25_SHARE_IN_THIS                            :{WHITE}この会社の株を25%購入できません
+STR_ERROR_CAN_T_SELL_25_SHARE_IN                                :{WHITE}この会社の株を25%売却できません
+STR_ERROR_PROTECTED                                             :{WHITE}この会社は開設から6年が経過していません
+
+STR_CONFIG_SETTING_CYCLE_SIGNAL_PBS                             :パス・一方通行パス
+
+STR_WARNING_PASSWORD_SECURITY                                   :{YELLOW}警告: サーバーの管理者はここに入力された文章をすべて読めます。
+STR_NETWORK_NEED_COMPANY_PASSWORD_CAPTION                       :{WHITE}この会社は保護されています。経営に参画するにはパスワードを入力してください
+STR_NETWORK_CLIENT_LIST_ADMIN_COMPANY_UNLOCK                    :パスワードのアンロック
+STR_NETWORK_CLIENT_LIST_ASK_COMPANY_UNLOCK                      :{YELLOW}会社 '{COMPANY}'のパスワードをリセットしてもよろしいですか？
+
+# Network set password
+STR_COMPANY_PASSWORD_CANCEL                                     :{BLACK}入力したパスワードを保存しない
+STR_COMPANY_PASSWORD_OK                                         :{BLACK}会社パスワードを変更
+STR_COMPANY_PASSWORD_CAPTION                                    :{WHITE}会社パスワード
+STR_COMPANY_PASSWORD_MAKE_DEFAULT                               :{BLACK}デフォルトの会社パスワード
+STR_COMPANY_PASSWORD_MAKE_DEFAULT_TOOLTIP                       :{BLACK}このパスワードを新しい交通会社の規定パスワードとして使用します
+
+STR_COMPANY_VIEW_PASSWORD                                       :{BLACK}パスワード
+STR_COMPANY_VIEW_PASSWORD_TOOLTIP                               :{BLACK}認証されていないプレーヤーの参加を防ぐために、会社をパスワードで保護します
+STR_COMPANY_VIEW_SET_PASSWORD                                   :{BLACK}会社パスワードを設定
+
+# JSON messages
+
+STR_INTRO_NEWGRF_SETTINGS                                       :{BLACK}NewGRFの設定
+STR_INTRO_AI_SETTINGS                                           :{BLACK}AI設定
+STR_INTRO_GAMESCRIPT_SETTINGS                                   :{BLACK}ゲームスクリプト設定
+STR_INTRO_TOOLTIP_NEWGRF_SETTINGS                               :{BLACK}NewGRFの有効/無効化、各パラメータの設定ができます
+STR_INTRO_TOOLTIP_AI_SETTINGS                                   :{BLACK}AI設定を表示
+STR_INTRO_TOOLTIP_GAMESCRIPT_SETTINGS                           :{BLACK}ゲームスクリプト設定を表示
+STR_INTRO_CAPTION_TRADITIONAL                                   :{WHITE}OpenTTD {REV}

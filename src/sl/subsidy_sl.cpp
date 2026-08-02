@@ -1,0 +1,21 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file subsidy_sl.cpp Code handling saving and loading of subsidies */
+
+#include "../stdafx.h"
+#include "../subsidy_base.h"
+
+#include "saveload.h"
+
+#include "../safeguards.h"
+
+static const ChunkHandler subsidy_chunk_handlers[] = {
+	MakeUpstreamChunkHandler<'SUBS', GeneralUpstreamChunkLoadInfo>(),
+};
+
+extern const ChunkHandlerTable _subsidy_chunk_handlers(subsidy_chunk_handlers);

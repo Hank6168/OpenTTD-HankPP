@@ -1,0 +1,29 @@
+# Tracerestrict GUI
+
+# Programmable Pre-Signals
+
+#Town select window (for SE only)
+
+# Town tooltip
+
+# Cargo type orders Window
+
+# Plans window
+
+# Clear area query
+
+# Plan related errors
+
+# Scheduled Dispatch
+
+# Modifier key toggle window
+
+STR_ERROR_CAN_T_SELL_25_SHARE_IN                                :{WHITE}इस कंपनी का २५% अंश नहीं बेच सकते...
+
+STR_CONFIG_SETTING_CYCLE_SIGNAL_PBS                             :केवल पथ संकेत
+
+# Network set password
+
+STR_COMPANY_VIEW_PASSWORD                                       :{BLACK}पासवर्ड
+
+# JSON messages

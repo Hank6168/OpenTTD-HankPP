@@ -1,0 +1,319 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file strings_func.h Functions related to OTTD's strings. */
+
+#ifndef STRINGS_FUNC_H
+#define STRINGS_FUNC_H
+
+#include "strings_type.h"
+#include "string_type.h"
+#include "gfx_type.h"
+#include "core/bitmath_func.hpp"
+#include "vehicle_type.h"
+#include <array>
+#include <optional>
+#include <vector>
+
+/**
+ * Extract the StringTab from a StringID.
+ * @param str String identifier
+ * @return StringTab from \a str
+ */
+inline StringTab GetStringTab(StringID str)
+{
+	StringTab result = (StringTab)(str >> TAB_SIZE_BITS);
+	if (result >= TEXT_TAB_NEWGRF_START) return TEXT_TAB_NEWGRF_START;
+	if (result >= TEXT_TAB_GAMESCRIPT_START) return TEXT_TAB_GAMESCRIPT_START;
+	return result;
+}
+
+/**
+ * Extract the StringIndex from a StringID.
+ * @param str String identifier
+ * @return StringIndex from \a str
+ */
+inline StringIndexInTab GetStringIndex(StringID str)
+{
+	return StringIndexInTab{str - (GetStringTab(str) << TAB_SIZE_BITS)};
+}
+
+/**
+ * Create a StringID
+ * @param tab StringTab
+ * @param index Index of the string within the given tab.
+ * @return StringID composed from \a tab and \a index
+ */
+inline StringID MakeStringID(StringTab tab, StringIndexInTab index)
+{
+	if (tab == TEXT_TAB_NEWGRF_START) {
+		assert(index < TAB_SIZE_NEWGRF);
+	} else if (tab == TEXT_TAB_GAMESCRIPT_START) {
+		assert(index < TAB_SIZE_GAMESCRIPT);
+	} else {
+		assert(tab < TEXT_TAB_END);
+		assert(index < TAB_SIZE);
+	}
+	return (tab << TAB_SIZE_BITS) + index.base();
+}
+
+/**
+ * Prepare the string parameters for the next formatting run, resetting the type information.
+ * This is only necessary if parameters are reused for multiple format runs.
+ * @param args The parameters to prepare.
+ */
+static inline void PrepareArgsForNextRun(std::span<StringParameter> args)
+{
+	for (auto &param : args) param.type = 0;
+}
+
+[[nodiscard]] std::string GetStringWithArgs(StringID string, std::span<StringParameter> args);
+[[nodiscard]] std::string GetString(StringID string);
+[[nodiscard]] std::string_view GetStringPtr(StringID string);
+void AppendStringWithArgsInPlace(struct format_target &result, StringID string, std::span<StringParameter> args);
+void AppendStringWithArgsInPlace(std::string &result, StringID string, std::span<StringParameter> args);
+uint32_t GetStringGRFID(StringID string);
+
+uint ConvertKmhishSpeedToDisplaySpeed(uint speed, VehicleType type);
+uint ConvertDisplaySpeedToKmhishSpeed(uint speed, VehicleType type);
+
+StringID GetVelocityUnitName(VehicleType type);
+
+/**
+ * Pack velocity and vehicle type for use with SCC_VELOCITY string parameter.
+ * @param speed Display speed for parameter.
+ * @param type Type of vehicle for parameter.
+ * @return Bit-packed velocity and vehicle type, for use with string parameters.
+ */
+inline int64_t PackVelocity(uint speed, VehicleType type)
+{
+	/* Vehicle type is a byte, so packed into the top 8 bits of the 64-bit
+	 * parameter, although only values from 0-3 are relevant. */
+	return speed | (static_cast<uint64_t>(type) << 56);
+}
+
+inline char32_t GetDecimalSeparatorChar()
+{
+	extern char32_t _decimal_separator_char;
+	return _decimal_separator_char;
+}
+
+uint64_t GetParamMaxValue(uint64_t max_value, uint min_count = 0, FontSize size = FontSize::Normal);
+uint64_t GetParamMaxDigits(uint count, FontSize size = FontSize::Normal);
+
+template <typename T, std::enable_if_t<StringParameterAsBase<T>, int> = 0>
+uint64_t GetParamMaxValue(T max_value, uint min_count = 0, FontSize size = FontSize::Normal)
+{
+	return GetParamMaxValue(max_value.base(), min_count, size);
+}
+
+extern TextDirection _current_text_dir; ///< Text direction of the currently selected language
+
+void InitializeLanguagePacks();
+std::string_view GetCurrentLanguageIsoCode();
+std::string_view GetListSeparator();
+std::string_view GetEllipsis();
+
+/**
+ * Helper to create the StringParameters with its own buffer with the given
+ * parameter values.
+ * @param args The parameters to set for the to be created StringParameters.
+ * @return The constructed StringParameters.
+ */
+template <typename... Args>
+[[nodiscard]] auto MakeParameters(Args &&... args)
+{
+	return std::array<StringParameter, sizeof...(args)>({StringParameter{std::forward<Args>(args)}...});
+}
+
+template <size_t N>
+struct ReferenceStringParameters {
+	std::array<StringParameter, N> args;
+
+	/* Helper to allow creating a std::span even when the string parameters are an rvalue. */
+	inline operator std::span<StringParameter> () { return this->args; }
+	inline operator std::span<const StringParameter> () const { return this->args; }
+};
+
+/**
+ * Helper to create the StringParameters with its own buffer with the given
+ * parameter values.
+ * The arguments are captured by reference where suitable.
+ * @param args The parameters to set for the to be created StringParameters.
+ * @return The constructed StringParameters.
+ */
+template <typename... Args>
+[[nodiscard]] auto MakeReferenceParameters(Args &&... args)
+{
+	return ReferenceStringParameters<sizeof...(args)>{
+		std::array<StringParameter, sizeof...(args)>({StringParameter{StringParameter::ReferenceCaptureTag{}, std::forward<Args>(args)}...})
+	};
+}
+
+/**
+ * Get a parsed string with most special stringcodes replaced by the string parameters.
+ * @param string String ID to format.
+ * @param args The parameters to set.
+ * @return The parsed string.
+ */
+template <typename... Args>
+[[nodiscard]] std::string GetString(StringID string, Args &&... args)
+{
+	return GetStringWithArgs(string, MakeReferenceParameters(std::forward<Args>(args)...));
+}
+
+[[nodiscard]] EncodedString GetEncodedString(StringID str);
+[[nodiscard]] EncodedString GetEncodedStringWithArgs(StringID str, std::span<const StringParameter> params);
+
+/**
+ * Encode a string with no parameters into an encoded string, if the string id is valid.
+ * @note the return encoded string will be empty if the string id is not valid.
+ * @param str String to encode.
+ * @returns an EncodedString.
+ */
+static inline EncodedString GetEncodedStringIfValid(StringID str)
+{
+	if (str == INVALID_STRING_ID) return {};
+	return GetEncodedString(str);
+}
+
+/**
+ * Get an encoded string with parameters.
+ * @param string String ID to encode.
+ * @param args The parameters to set.
+ * @return The encoded string.
+ */
+template <typename... Args>
+[[nodiscard]] EncodedString GetEncodedString(StringID string, Args &&... args)
+{
+	return GetEncodedStringWithArgs(string, MakeReferenceParameters(std::forward<Args>(args)...));
+}
+
+[[nodiscard]] EncodedString GetEncodedRawString(std::string_view str);
+
+/**
+ * Resolve the given StringID and append in place into an existing format_buffer with most special stringcodes replaced by the string parameters.
+ * @param result The format_target to append to.
+ * @param string String ID to format.
+ * @param args The parameters to set.
+ */
+template <typename... Args>
+void AppendStringInPlace(struct format_target &result, StringID string, Args &&... args)
+{
+	return AppendStringWithArgsInPlace(result, string, MakeReferenceParameters(std::forward<Args>(args)...));
+}
+
+/**
+ * Resolve the given StringID and append in place into an existing format_buffer with most special stringcodes replaced by the string parameters.
+ * @param result The std::string to append to.
+ * @param string String ID to format.
+ * @param args The parameters to set.
+ */
+template <typename... Args>
+void AppendStringInPlace(std::string &result, StringID string, Args &&... args)
+{
+	return AppendStringWithArgsInPlace(result, string, MakeReferenceParameters(std::forward<Args>(args)...));
+}
+
+/**
+ * Resolve the given StringID into an existing format_buffer or std::string (replacing the existing contents), with most special stringcodes replaced by the string parameters.
+ * @param buffer The format_buffer or std::string to write to.
+ * @param string String ID to format.
+ * @param args The parameters to set.
+ * @return string_view of the output buffer
+ */
+template <typename T, typename... Args>
+std::string_view GetStringInPlace(T &buffer, StringID string, Args &&... args)
+{
+	buffer.clear();
+	AppendStringWithArgsInPlace(buffer, string, MakeReferenceParameters(std::forward<Args>(args)...));
+	return buffer;
+}
+
+/**
+ * Resolve the given StringID into an existing format_buffer or std::string (replacing the existing contents), with most special stringcodes replaced by the string parameters.
+ * @param buffer The format_buffer or std::string to write to.
+ * @param string String ID to format.
+ * @param args Span of arguments for the string.
+ * @return string_view of the output buffer
+ */
+template <typename T, typename... Args>
+std::string_view GetStringWithArgsInPlace(T &buffer, StringID string, std::span<StringParameter> args)
+{
+	buffer.clear();
+	AppendStringWithArgsInPlace(buffer, string, args);
+	return buffer;
+}
+
+struct GetStringFmtParam {
+	StringID string;
+
+	GetStringFmtParam(StringID string) : string(string) {}
+
+	void fmt_format_value(struct format_target &output) const
+	{
+		AppendStringWithArgsInPlace(output, this->string, {});
+	}
+};
+
+/**
+ * A searcher for missing glyphs.
+ */
+class MissingGlyphSearcher {
+public:
+	/**
+	 * Create this glyph searcher.
+	 * @param fontsizes Font sizes to consider.
+	 */
+	MissingGlyphSearcher(FontSizes fontsizes) : fontsizes(fontsizes) {}
+
+	/** Ensure the destructor of the sub classes are called as well. */
+	virtual ~MissingGlyphSearcher() = default;
+
+	const FontSizes fontsizes; ///< Font sizes this searcher will try to find.
+	FontSizes missing_fontsizes{}; ///< Font sizes to actually search for.
+	std::vector<char32_t> missing_glyphs{}; ///< Glyphs to search for.
+
+	/**
+	 * Determine set of glyphs required for the current language.
+	 * @param fontsizes Font sizes to test.
+	 **/
+	virtual void DetermineRequiredGlyphs(FontSizes fontsizes) = 0;
+};
+
+/** Base for missing glyph searchers that look for missing glyphs in strings. */
+class BaseStringMissingGlyphSearcher : public MissingGlyphSearcher {
+public:
+	/**
+	 * Create this string glyph searcher.
+	 * @param fontsizes Font sizes to consider.
+	 */
+	BaseStringMissingGlyphSearcher(FontSizes fontsizes) : MissingGlyphSearcher(fontsizes) {}
+
+	void DetermineRequiredGlyphs(FontSizes fontsizes) override;
+
+	/**
+	 * Get the next string to search through.
+	 * @return The next string or nullopt if there is none.
+	 */
+	virtual std::optional<std::string_view> NextString() = 0;
+
+	/**
+	 * Get the default (font) size of the string.
+	 * @return The font size.
+	 */
+	virtual FontSize DefaultSize() = 0;
+
+	/**
+	 * Reset the search, i.e. begin from the beginning again.
+	 */
+	virtual void Reset() = 0;
+};
+
+void CheckForMissingGlyphs(MissingGlyphSearcher *searcher = nullptr);
+
+#endif /* STRINGS_FUNC_H */

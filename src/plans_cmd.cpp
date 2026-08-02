@@ -1,0 +1,251 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file plans_cmd.cpp Handling of plan related commands. */
+
+#include "stdafx.h"
+#include "command_func.h"
+#include "plans_base.h"
+#include "plans_cmd.h"
+#include "plans_func.h"
+#include "window_func.h"
+#include "company_func.h"
+#include "company_base.h"
+#include "string_func.h"
+#include "window_gui.h"
+#include "core/format.hpp"
+#include "table/strings.h"
+
+/**
+ * Create a new plan.
+ * @param flags type of operation
+ * @return the cost of this operation or an error
+ */
+CommandCost CmdAddPlan(DoCommandFlags flags)
+{
+	if (!Plan::CanAllocateItem()) return CommandCost(STR_ERROR_TOO_MANY_PLANS);
+	CommandCost cost;
+	if (flags.Test(DoCommandFlag::Execute)) {
+		Plan *plan = Plan::Create(_current_company);
+		cost.SetResultData(plan->index);
+	}
+	return cost;
+}
+
+bool AddPlanLine(PlanID plan, std::vector<TileIndex> tiles)
+{
+	PlanLineCmdData data;
+	data.plan = plan;
+	data.tiles = std::move(tiles);
+	return DoCommandP<Commands::AddPlanLine>(data, STR_NULL);
+}
+
+/**
+ * Create a new line in a plan.
+ * @param flags type of operation
+ * @param data plan data
+ * @return the cost of this operation or an error
+ */
+CommandCost CmdAddPlanLine(DoCommandFlags flags, const PlanLineCmdData &data)
+{
+	Plan *p = Plan::GetIfValid(data.plan);
+	if (p == nullptr) return CMD_ERROR;
+
+	CommandCost ret = CheckOwnership(p->owner);
+	if (ret.Failed()) return ret;
+
+	if (data.tiles.size() > (MAX_PLAN_PAYLOAD_SIZE / sizeof(TileIndex))) return CommandCost(STR_ERROR_TOO_MANY_NODES);
+	if (flags.Test(DoCommandFlag::Execute)) {
+		PlanLine &pl = p->NewLine();
+		pl.tiles = data.tiles;
+		pl.UpdateVisualExtents();
+		if (p->IsListable()) {
+			pl.SetVisibility(p->visible);
+			if (p->visible) pl.MarkDirty();
+			InvalidateWindowData(WindowClass::Plans, 0, INVALID_PLAN, false);
+		}
+	}
+	return CommandCost();
+}
+
+/**
+ * Edit the visibility of a plan.
+ * @param flags type of operation
+ * @param plan plan id
+ * @param visible visibility
+ * @return the cost of this operation or an error
+ */
+CommandCost CmdChangePlanVisibility(DoCommandFlags flags, PlanID plan, bool visible)
+{
+	Plan *p = Plan::GetIfValid(plan);
+	if (p == nullptr) return CMD_ERROR;
+	CommandCost ret = CheckOwnership(p->owner);
+	if (ret.Failed()) return ret;
+	if (flags.Test(DoCommandFlag::Execute)) {
+		if (p->visible_by_all != visible) {
+			p->visible_by_all = visible;
+			InvalidateWindowData(WindowClass::Plans, 0, INVALID_PLAN, false);
+			if (p->owner != _local_company && p->visible) {
+				for (PlanLine &line : p->lines) {
+					if (line.visible) line.MarkDirty();
+				}
+			}
+		}
+	}
+	return CommandCost();
+}
+
+/**
+ * Edit the colour of a plan.
+ * @param flags type of operation
+ * @param plan plan id
+ * @param p2 colour
+ * @return the cost of this operation or an error
+ */
+CommandCost CmdChangePlanColour(DoCommandFlags flags, PlanID plan, Colours colour)
+{
+	Plan *p = Plan::GetIfValid(plan);
+	if (p == nullptr) return CMD_ERROR;
+	if (colour >= Colours::End) return CMD_ERROR;
+	CommandCost ret = CheckOwnership(p->owner);
+	if (ret.Failed()) return ret;
+	if (flags.Test(DoCommandFlag::Execute)) {
+		p->colour = colour;
+		_plan_update_counter++;
+		InvalidateWindowData(WindowClass::Plans, 0, INVALID_PLAN, false);
+		for (const PlanLine &line : p->lines) {
+			if (line.visible) line.MarkDirty();
+		}
+		p->temp_line.MarkDirty();
+	}
+	return CommandCost();
+}
+
+/**
+ * Delete a plan.
+ * @param flags type of operation
+ * @param plan plan id
+ * @return the cost of this operation or an error
+ */
+CommandCost CmdRemovePlan(DoCommandFlags flags, PlanID plan)
+{
+	Plan *p = Plan::GetIfValid(plan);
+	if (p == nullptr) return CMD_ERROR;
+	CommandCost ret = CheckOwnership(p->owner);
+	if (ret.Failed()) return ret;
+	if (flags.Test(DoCommandFlag::Execute)) {
+		if (p->IsListable()) {
+			p->SetVisibility(false);
+			InvalidateWindowData(WindowClass::Plans, 0, p->index, false);
+		}
+		if (p == _current_plan) _current_plan = nullptr;
+		delete p;
+	}
+	return CommandCost();
+}
+
+/**
+ * Remove a line from a plan.
+ * @param flags type of operation
+ * @param plan plan id
+ * @param line line id
+ * @return the cost of this operation or an error
+ */
+CommandCost CmdRemovePlanLine(DoCommandFlags flags, PlanID plan, uint32_t line)
+{
+	Plan *p = Plan::GetIfValid(plan);
+	if (p == nullptr) return CMD_ERROR;
+	CommandCost ret = CheckOwnership(p->owner);
+	if (ret.Failed()) return ret;
+	if (line >= p->lines.size()) return CMD_ERROR;
+	if (flags.Test(DoCommandFlag::Execute)) {
+		p->lines[line].SetVisibility(false);
+		p->lines.erase(p->lines.begin() + line);
+		if (p->IsListable()) {
+			InvalidateWindowData(WindowClass::Plans, 0, INVALID_PLAN, false);
+		}
+	}
+	return CommandCost();
+}
+
+/**
+* Give a custom name to your plan
+* @param flags type of operation
+* @param plan ID of plan to name
+* @param text the new name
+* @return the cost of this operation or an error
+*/
+CommandCost CmdRenamePlan(DoCommandFlags flags, PlanID plan, const std::string &text)
+{
+	if (text.empty()) return CMD_ERROR;
+
+	Plan *p = Plan::GetIfValid(plan);
+	if (p == nullptr) return CMD_ERROR;
+	CommandCost ret = CheckOwnership(p->owner);
+	if (ret.Failed()) return ret;
+
+	if (Utf8StringLength(text) >= MAX_LENGTH_PLAN_NAME_CHARS) return CMD_ERROR;
+
+	if (flags.Test(DoCommandFlag::Execute)) {
+		p->name = text;
+		InvalidateWindowClassesData(WindowClass::Plans);
+	}
+
+	return CommandCost();
+}
+
+/**
+* Acquire an unowned plan
+* @param flags type of operation
+* @param plan ID of plan
+* @return the cost of this operation or an error
+*/
+CommandCost CmdAcquireUnownedPlan(DoCommandFlags flags, PlanID plan)
+{
+	Plan *p = Plan::GetIfValid(plan);
+	if (p == nullptr) return CMD_ERROR;
+	if (Company::IsValidID(p->owner)) return CMD_ERROR;
+	if (!Company::IsValidID(_current_company)) return CMD_ERROR;
+
+	if (flags.Test(DoCommandFlag::Execute)) {
+		p->owner = _current_company;
+		InvalidateWindowClassesData(WindowClass::Plans);
+		if (p->visible) {
+			for (PlanLine &line : p->lines) {
+				if (line.visible) line.MarkDirty();
+			}
+		}
+	}
+
+	return CommandCost();
+}
+
+void PlanLineCmdData::SerialisePayload(BufferSerialisationRef buffer) const
+{
+	buffer.Send_uint16(this->plan);
+	buffer.Send_uint32((uint32_t)this->tiles.size());
+	for (TileIndex t : this->tiles) {
+		buffer.Send_uint32(t.base());
+	}
+}
+
+bool PlanLineCmdData::Deserialise(DeserialisationBuffer &buffer, StringValidationSettings default_string_validation)
+{
+	this->plan = PlanID(buffer.Recv_uint16());
+	uint32_t size = buffer.Recv_uint32();
+	if (!buffer.CanRecvBytes(size * 4)) return false;
+	this->tiles.resize(size);
+	for (uint i = 0; i < size; i++) {
+		this->tiles[i] = TileIndex{buffer.Recv_uint32()};
+	}
+	return true;
+}
+
+void PlanLineCmdData::FormatDebugSummary(format_target &output) const
+{
+	output.format("Plan {}, {} tiles", this->plan, this->tiles.size());
+}

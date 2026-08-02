@@ -1,0 +1,409 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file order_type.h Types related to orders. */
+
+#ifndef ORDER_TYPE_H
+#define ORDER_TYPE_H
+
+#include "core/enum_type.hpp"
+#include "depot_type.h"
+#include "core/pool_type.hpp"
+#include "station_type.h"
+#include "tracerestrict_id_type.h"
+
+typedef uint16_t VehicleOrderID;  ///< The index of an order within its current vehicle (not pool related)
+struct OrderIDTag : public PoolIDTraits<uint32_t, 0xFF0000, 0xFFFFFF> {};
+using OrderID = PoolID<OrderIDTag>;
+struct OrderListIDTag : public PoolIDTraits<uint16_t, 64000, 0xFFFF> {};
+using OrderListID = PoolID<OrderListIDTag>;
+typedef uint32_t TimetableTicks;
+
+struct DestinationID {
+	static inline constexpr bool fmt_as_base = true;
+	static inline constexpr bool serialisation_as_base = true;
+	static inline constexpr bool saveload_primitive_type = true;
+	static inline constexpr bool integer_type_hint = true;
+	static inline constexpr bool string_parameter_as_base = true;
+
+	using BaseType = uint16_t;
+	BaseType value = 0;
+
+	explicit DestinationID() = default;
+	constexpr DestinationID(size_t index) : value(static_cast<BaseType>(index)) {}
+	constexpr DestinationID(DepotID depot) : value(depot.base()) {}
+	constexpr DestinationID(StationID station) : value(station.base()) {}
+	constexpr DestinationID(TraceRestrictSlotID slot) : value(slot.base()) {}
+	constexpr DestinationID(TraceRestrictSlotGroupID sg) : value(sg.base()) {}
+	constexpr DestinationID(TraceRestrictCounterID ctr) : value(ctr.base()) {}
+
+	constexpr DepotID ToDepotID() const noexcept { return static_cast<DepotID>(this->value); }
+	constexpr StationID ToStationID() const noexcept { return static_cast<StationID>(this->value); }
+	constexpr TraceRestrictSlotID ToSlotID() const noexcept { return static_cast<TraceRestrictSlotID>(this->value); }
+	constexpr TraceRestrictSlotGroupID ToSlotGroupID() const noexcept { return static_cast<TraceRestrictSlotGroupID>(this->value); }
+	constexpr TraceRestrictCounterID ToCounterID() const noexcept { return static_cast<TraceRestrictCounterID>(this->value); }
+	constexpr BaseType base() const noexcept { return this->value; }
+	constexpr const BaseType &base_ref() const noexcept { return this->value; }
+	constexpr BaseType &edit_base() { return this->value; }
+
+	constexpr bool operator ==(const DestinationID &destination) const { return this->value == destination.value; }
+	constexpr bool operator ==(const StationID &station) const { return this->value == station; }
+	constexpr bool operator ==(const TraceRestrictSlotID &slot) const { return this->value == slot.base(); }
+	constexpr bool operator ==(const TraceRestrictCounterID &ctr) const { return this->value == ctr.base(); }
+};
+
+/** Invalid vehicle order index (sentinel) */
+static const VehicleOrderID INVALID_VEH_ORDER_ID = 0xFFFF;
+/** Last valid VehicleOrderID. */
+static const VehicleOrderID MAX_VEH_ORDER_ID     = INVALID_VEH_ORDER_ID - 1;
+
+/**
+ * Maximum number of orders in implicit-only lists before we start searching
+ * harder for duplicates.
+ */
+static const uint IMPLICIT_ORDER_ONLY_CAP = 32;
+
+/** Invalid scheduled dispatch offset from current schedule */
+static const int32_t INVALID_SCHEDULED_DISPATCH_OFFSET = INT32_MIN;
+
+/** Order types. It needs to be 8bits, because we save and load it as such */
+enum OrderType : uint8_t {
+	OT_BEGIN         = 0,
+	OT_NOTHING       = 0,
+	OT_GOTO_STATION  = 1,
+	OT_GOTO_DEPOT    = 2,
+	OT_LOADING       = 3,
+	OT_LEAVESTATION  = 4,
+	OT_DUMMY         = 5,
+	OT_GOTO_WAYPOINT = 6,
+	OT_CONDITIONAL   = 7,
+	OT_IMPLICIT      = 8,
+	OT_WAITING       = 9,
+	OT_LOADING_ADVANCE = 10,
+	OT_SLOT          = 11,
+	OT_COUNTER       = 12,
+	OT_LABEL         = 13,
+	OT_SLOT_GROUP    = 14,
+	OT_END
+};
+
+using OrderTypeMask = uint16_t;
+
+enum OrderSlotSubType : uint8_t {
+	OSST_RELEASE               = 0,
+	OSST_TRY_ACQUIRE           = 1,
+};
+
+enum OrderSlotGroupSubType : uint8_t {
+	OSGST_RELEASE              = 0,
+};
+
+enum OrderLabelSubType : uint8_t {
+	OLST_TEXT                  = 0,
+	OLST_DEPARTURES_VIA        = 1,
+	OLST_DEPARTURES_REMOVE_VIA = 2,
+	OLST_ERROR                 = 3,
+};
+
+enum class OrderLabelError : uint16_t {
+	Default                    = 0,
+	ParseError                 = 1,
+};
+
+inline bool IsDestinationOrderLabelSubType(OrderLabelSubType subtype)
+{
+	return subtype == OLST_DEPARTURES_VIA || subtype == OLST_DEPARTURES_REMOVE_VIA;
+}
+
+inline bool IsDeparturesOrderLabelSubType(OrderLabelSubType subtype)
+{
+	return subtype == OLST_DEPARTURES_VIA || subtype == OLST_DEPARTURES_REMOVE_VIA;
+}
+
+/**
+ * Unloading order types.
+ */
+enum class OrderUnloadType : uint8_t {
+	UnloadIfPossible = 0, ///< Unload all cargo that the station accepts.
+	Unload           = 1, ///< Force unloading all cargo onto the platform, possibly not getting paid.
+	Transfer         = 2, ///< Transfer all cargo onto the platform.
+	NoUnload         = 4, ///< Totally no unloading will be done.
+	CargoTypeUnload  = 5, ///< Unload actions are defined per cargo type.
+};
+
+/**
+ * Loading order types.
+ */
+enum class OrderLoadType : uint8_t {
+	LoadIfPossible = 0, ///< Load as long as there is cargo that fits in the train.
+	FullLoad       = 2, ///< Full load all cargoes of the consist.
+	FullLoadAny    = 3, ///< Full load a single cargo of the consist.
+	NoLoad         = 4, ///< Do not load anything.
+	CargoTypeLoad  = 6, ///< Load actions are defined per cargo type.
+};
+
+constexpr inline bool IsFullLoadOrderLoadType(OrderLoadType load_type)
+{
+	return load_type == OrderLoadType::FullLoad || load_type == OrderLoadType::FullLoadAny;
+}
+
+/**
+ * Non-stop order flags.
+ */
+enum OrderNonStopFlags : uint8_t {
+	ONSF_STOP_EVERYWHERE                  = 0, ///< The vehicle will stop at any station it passes and the destination.
+	ONSF_NO_STOP_AT_INTERMEDIATE_STATIONS = 1, ///< The vehicle will not stop at any stations it passes except the destination.
+	ONSF_NO_STOP_AT_DESTINATION_STATION   = 2, ///< The vehicle will stop at any station it passes except the destination.
+	ONSF_NO_STOP_AT_ANY_STATION           = 3, ///< The vehicle will not stop at any stations it passes including the destination.
+	ONSF_END
+};
+
+/**
+ * Where to stop the trains.
+ */
+enum class OrderStopLocation : uint8_t {
+	NearEnd  = 0, ///< Stop at the near end of the platform
+	Middle   = 1, ///< Stop at the middle of the platform
+	FarEnd   = 2, ///< Stop at the far end of the platform
+	Through  = 3, ///< Load/unload through the platform
+	End,          ///< End marker.
+};
+
+/**
+ * Reasons that could cause us to go to the depot.
+ */
+enum class OrderDepotTypeFlag : uint8_t {
+	Service              = 0, ///< This depot order is because of the servicing limit.
+	PartOfOrders         = 1, ///< This depot order is because of a regular order.
+	Breakdown            = 2, ///< This depot order is because of a breakdown.
+};
+using OrderDepotTypeFlags = EnumBitSet<OrderDepotTypeFlag, uint8_t>;
+
+/**
+ * Actions that can be performed when the vehicle enters the depot.
+ */
+enum OrderDepotActionFlags : uint8_t {
+	ODATF_SERVICE_ONLY   = 0,      ///< Only service the vehicle.
+	ODATFB_HALT          = 1 << 0, ///< Service the vehicle and then halt it.
+	ODATFB_NEAREST_DEPOT = 1 << 1, ///< Send the vehicle to the nearest depot.
+	ODATFB_SELL          = 1 << 2, ///< Sell the vehicle on arrival at the depot.
+	ODATFB_UNBUNCH       = 1 << 3, ///< Service the vehicle and then unbunch it.
+};
+DECLARE_ENUM_AS_BIT_SET(OrderDepotActionFlags)
+
+/**
+ * Extra depot flags.
+ */
+enum class OrderDepotExtraFlag : uint8_t {
+	Specific            = 0, ///< This order is for a specific depot.
+};
+using OrderDepotExtraFlags = EnumBitSet<OrderDepotExtraFlag, uint8_t>;
+
+/**
+ * Flags for go to waypoint orders
+ */
+enum class OrderWaypointFlag : uint8_t {
+	Reverse             = 0, ///< Reverse train at the waypoint
+};
+using OrderWaypointFlags = EnumBitSet<OrderWaypointFlag, uint8_t>;
+
+/**
+ * Variables (of a vehicle) to 'cause' skipping on.
+ */
+enum class OrderConditionVariable : uint8_t {
+	LoadPercentage               =  0, ///< Skip based on the amount of load
+	Reliability                  =  1, ///< Skip based on the reliability
+	MaxSpeed                     =  2, ///< Skip based on the maximum speed
+	Age                          =  3, ///< Skip based on the age
+	RequiresService              =  4, ///< Skip when the vehicle requires service
+	Unconditionally              =  5, ///< Always skip
+	RemainingLifetime            =  6, ///< Skip based on the remaining lifetime
+	MaxReliability               =  7, ///< Skip based on the maximum reliability
+	/* end of upstream variables */
+	CargoWaiting                 =  8, ///< Skip if specified cargo is waiting at station
+	CargoAcceptance              =  9, ///< Skip if specified cargo is accepted at station
+	FreePlatforms                = 10, ///< Skip based on free platforms at station
+	Percent                      = 11, ///< Skip xx percent of times
+	SlotOccupancy                = 12, ///< Test if vehicle slot is fully occupied, or empty
+	VehicleInSlot                = 13, ///< Test if vehicle is in slot
+	CargoLoadPercentage          = 14, ///< Skip based on the amount of load of a specific cargo
+	CargoWaitingAmount           = 15, ///< Skip based on the amount of a specific cargo waiting at station
+	CounterValue                 = 16, ///< Skip based on counter value
+	TimeDate                     = 17, ///< Skip based on current time/date
+	Timetable                    = 18, ///< Skip based on timetable state
+	DispatchSlot                 = 19, ///< Skip based on scheduled dispatch slot state
+	CargoWaitingAmountPercentage = 20, ///< Skip based on the amount of a specific cargo waiting at station, relative to the vehicle capacity
+	VehicleInSlotGroup           = 21, ///< Test if vehicle is in slot group
+	DrivingBackwards             = 22, ///< Skip when the train is driving backwards, upstream value = 8
+	End, ///< End marker.
+};
+
+inline bool ConditionVariableHasStationID(OrderConditionVariable ocv)
+{
+	return ocv == OrderConditionVariable::CargoWaiting || ocv == OrderConditionVariable::CargoAcceptance || ocv == OrderConditionVariable::FreePlatforms || ocv == OrderConditionVariable::CargoWaitingAmount || ocv == OrderConditionVariable::CargoWaitingAmountPercentage;
+}
+
+inline bool ConditionVariableTestsCargoWaitingAmount(OrderConditionVariable ocv)
+{
+	return ocv == OrderConditionVariable::CargoWaitingAmount || ocv == OrderConditionVariable::CargoWaitingAmountPercentage;
+}
+
+/**
+ * Comparator for the skip reasoning.
+ */
+enum class OrderConditionComparator : uint8_t {
+	Equal           = 0, ///< Skip if both values are equal
+	NotEqual        = 1, ///< Skip if both values are not equal
+	LessThan        = 2, ///< Skip if the value is less than the limit
+	LessThanOrEqual = 3, ///< Skip if the value is less or equal to the limit
+	MoreThan        = 4, ///< Skip if the value is more than the limit
+	MoreThanOrEqual = 5, ///< Skip if the value is more or equal to the limit
+	IsTrue          = 6, ///< Skip if the variable is true
+	IsFalse         = 7, ///< Skip if the variable is false
+	End
+};
+
+
+/**
+ * Enumeration for the data to set in #CmdModifyOrder.
+ */
+enum ModifyOrderFlags : uint8_t {
+	MOF_NON_STOP,        ///< Passes an OrderNonStopFlags.
+	MOF_STOP_LOCATION,   ///< Passes an OrderStopLocation.
+	MOF_UNLOAD,          ///< Passes an OrderUnloadType.
+	MOF_LOAD,            ///< Passes an OrderLoadType
+	MOF_DEPOT_ACTION,    ///< Selects the OrderDepotAction
+	MOF_COND_VARIABLE,   ///< A conditional variable changes.
+	MOF_COND_COMPARATOR, ///< A comparator changes.
+	MOF_COND_VALUE,      ///< The value to set the condition to.
+	MOF_COND_VALUE_2,    ///< The secondary value to set the condition to.
+	MOF_COND_VALUE_3,    ///< The tertiary value to set the condition to.
+	MOF_COND_VALUE_4,    ///< The quaternary value to set the condition to.
+	MOF_COND_STATION_ID, ///< The station ID to set the condition to.
+	MOF_COND_DESTINATION,///< Change the destination of a conditional order.
+	MOF_WAYPOINT_FLAGS,  ///< Change the waypoint flags
+	MOF_CARGO_TYPE_UNLOAD, ///< Passes an OrderUnloadType and a CargoType.
+	MOF_CARGO_TYPE_LOAD,   ///< Passes an OrderLoadType and a CargoType.
+	MOF_SLOT,            ///< Change the slot value
+	MOF_SLOT_GROUP,      ///< Change the slot group value
+	MOF_RV_TRAVEL_DIR,   ///< Change the road vehicle travel direction.
+	MOF_COUNTER_ID,      ///< Change the counter ID
+	MOF_COUNTER_OP,      ///< Change the counter operation
+	MOF_COUNTER_VALUE,   ///< Change the counter value
+	MOF_COLOUR,          ///< Change the colour value
+	MOF_LABEL_TEXT,      ///< Change the label text value
+	MOF_DEPARTURES_SUBTYPE, ///< Change the label departures subtype
+	MOF_END
+};
+
+/**
+ * Depot action to switch to when doing a #MOF_DEPOT_ACTION.
+ */
+enum OrderDepotAction : uint8_t {
+	DA_ALWAYS_GO, ///< Always go to the depot
+	DA_SERVICE,   ///< Service only if needed
+	DA_STOP,      ///< Go to the depot and stop there
+	DA_UNBUNCH,   ///< Go to the depot and unbunch
+	DA_SELL,      ///< Go to the depot and sell vehicle
+	DA_END
+};
+
+/**
+ * When to leave the station/waiting point.
+ */
+enum OrderLeaveType {
+	OLT_NORMAL               = 0, ///< Leave when timetabled
+	OLT_LEAVE_EARLY          = 1, ///< Leave as soon as possible
+	OLT_LEAVE_EARLY_FULL_ANY = 2, ///< Leave as soon as possible, if any cargoes fully loaded
+	OLT_LEAVE_EARLY_FULL_ALL = 3, ///< Leave as soon as possible, if all cargoes fully loaded
+	OLT_END
+};
+
+enum OrderTimetableConditionMode {
+	OTCM_LATENESS            = 0, ///< Test timetable lateness
+	OTCM_EARLINESS           = 1, ///< Test timetable earliness
+	OTCM_END
+};
+
+/**
+ * Condition value field for OrderConditionVariable::DispatchSlot
+ *  0                   1
+ *  0 1 2 3 4 5 6 7 8 9 0
+ * +-+-+-+-+-+-+-+-+-+-+-+
+ * | |Src|         |Mode |
+ * | |   |         |     |
+ * +-+-+-+-+-+-+-+-+-+-+-+
+ *
+ * Mode = ODCM_FIRST_LAST
+ *  0                   1
+ *  0 1 2 3 4 5 6 7 8 9 0
+ * +-+-+-+-+-+-+-+-+-+-+-+
+ * |X|Src|         |Mode |
+ * | |   |         |     |
+ * +-+-+-+-+-+-+-+-+-+-+-+
+ *  |
+ * First/last slot bit
+ *
+ * Mode = OCDM_TAG
+ *  0                   1
+ *  0 1 2 3 4 5 6 7 8 9 0
+ * +-+-+-+-+-+-+-+-+-+-+-+
+ * | |Src| |Tag|   |Mode |
+ * | |   | |   |   |     |
+ * +-+-+-+-+-+-+-+-+-+-+-+
+ *           |
+ *           Slot tag
+ *
+ * Mode = OCDM_ROUTE_ID
+ * Route ID is in low half of xdata2.
+*/
+
+enum OrderDispatchConditionBits {
+	ODCB_SRC_START           = 1,
+	ODCB_SRC_COUNT           = 2,
+	ODCB_MODE_START          = 8,
+	ODCB_MODE_COUNT          = 3,
+};
+
+enum OrderDispatchConditionSources : uint8_t {
+	ODCS_BEGIN               = 0,
+	ODCS_NEXT                = 0,
+	ODCS_LAST                = 1,
+	ODCS_VEH                 = 2,
+	ODCS_END,
+};
+
+enum OrderDispatchConditionModes : uint8_t {
+	ODCM_FIRST_LAST          = 0,
+	OCDM_TAG                 = 1,
+	OCDM_ROUTE_ID            = 2,
+};
+
+enum OrderDispatchFirstLastConditionBits {
+	ODFLCB_LAST_SLOT         = 0,
+};
+
+enum OrderDispatchTagConditionBits {
+	ODFLCB_TAG_START         = 4,
+	ODFLCB_TAG_COUNT         = 2,
+};
+
+/** Clone actions. */
+enum CloneOptions : uint8_t {
+	CO_SHARE   = 0,
+	CO_COPY    = 1,
+	CO_UNSHARE = 2
+};
+
+struct Order;
+struct OrderPoolItem;
+struct OrderList;
+
+using DispatchSlotRouteID = uint8_t;
+static const DispatchSlotRouteID INVALID_DISPATCH_SLOT_ROUTE_ID = 0xFF;
+
+#endif /* ORDER_TYPE_H */

@@ -1,0 +1,144 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file vehicle_type.h Types related to vehicles. */
+
+#ifndef VEHICLE_TYPE_H
+#define VEHICLE_TYPE_H
+
+#include "strings_type_trait.h"
+#include "window_type_trait.h"
+#include "core/enum_type.hpp"
+#include "core/pool_type.hpp"
+
+/** The type all our vehicle IDs have. */
+struct VehicleIDTag : public PoolIDTraits<uint32_t, 0xFF000, 0xFFFFF> {};
+using VehicleID = PoolID<VehicleIDTag>;
+
+static const int GROUND_ACCELERATION = 9800; ///< Acceleration due to gravity, 9.8 m/s^2
+
+/** Available vehicle types. It needs to be 8bits, because we save and load it as such */
+enum class VehicleType : uint8_t {
+	Begin, ///< Begin marker.
+
+	Train = VehicleType::Begin, ///< %Train vehicle type.
+	Road, ///< Road vehicle type.
+	Ship, ///< %Ship vehicle type.
+	Aircraft, ///< %Aircraft vehicle type.
+
+	CompanyEnd, ///< Last company-ownable type.
+
+	Effect = VehicleType::CompanyEnd, ///< Effect vehicle type (smoke, explosions, sparks, bubbles)
+	Disaster, ///< Disaster vehicle type.
+	End, ///< End marker.
+
+	Invalid = 0xFF, ///< Non-existing type of vehicle.
+};
+DECLARE_INCREMENT_DECREMENT_OPERATORS(VehicleType)
+DECLARE_ENUM_AS_ADDABLE(VehicleType)
+DECLARE_CONVERTIBLE_TO_WINDOW_NUMBER(VehicleType)
+DECLARE_CONVERTIBLE_TO_WINDOW_INVALIDATION_DATA(VehicleType)
+DECLARE_SCOPED_ENUM_CONVERTIBLE_TO_STRING_PARAMETER(VehicleType)
+
+using VehicleTypeMask = uint8_t;
+static_assert(to_underlying(VehicleType::End) <= 8);
+
+struct Vehicle;
+struct Train;
+struct RoadVehicle;
+struct Ship;
+struct Aircraft;
+struct EffectVehicle;
+struct DisasterVehicle;
+
+/** Base vehicle class. */
+struct BaseVehicle {
+	VehicleType type = VehicleType::Invalid; ///< Type of vehicle
+};
+
+/** Flags for goto depot commands. */
+enum class DepotCommandFlag : uint8_t {
+	Service,     ///< The vehicle will leave the depot right after arrival (service only)
+	Cancel,      ///< Cancel depot/service order
+	DontCancel,  ///< Don't cancel current goto depot command if any
+	Specific,    ///< Send vehicle to specific depot
+	Sell,        ///< Go to depot and sell order
+};
+using DepotCommandFlags = EnumBitSet<DepotCommandFlag, uint8_t>;
+
+static const uint MAX_LENGTH_VEHICLE_NAME_CHARS = 128; ///< The maximum length of a vehicle name in characters including '\0'
+
+/** The length of a vehicle in tile units. */
+static const uint VEHICLE_LENGTH = 8;
+
+/**
+ * The different types of breakdowns
+ *
+ * Aircraft have totally different breakdowns, so we use aliases to make things clearer
+ */
+enum BreakdownType {
+	BREAKDOWN_CRITICAL  = 0, ///< Old style breakdown (black smoke)
+	BREAKDOWN_EM_STOP   = 1, ///< Emergency stop
+	BREAKDOWN_LOW_SPEED = 2, ///< Lower max speed
+	BREAKDOWN_LOW_POWER = 3, ///< Power reduction
+	BREAKDOWN_RV_CRASH  = 4, ///< Train hit road vehicle
+	BREAKDOWN_BRAKE_OVERHEAT = 5, ///< Train brakes overheated due to excessive slope or speed change
+
+	BREAKDOWN_AIRCRAFT_SPEED      = BREAKDOWN_CRITICAL,  ///< Lower speed until the next airport
+	BREAKDOWN_AIRCRAFT_DEPOT      = BREAKDOWN_EM_STOP,   ///< We have to visit a depot at the next airport
+	BREAKDOWN_AIRCRAFT_EM_LANDING = BREAKDOWN_LOW_SPEED, ///< Emergency landing at the closest airport (with hangar!) we can find
+};
+
+/** Vehicle acceleration models. */
+enum AccelerationModel : uint8_t {
+	AM_ORIGINAL,
+	AM_REALISTIC,
+};
+
+/** Train braking models. */
+enum TrainBrakingModel {
+	TBM_ORIGINAL,
+	TBM_REALISTIC,
+};
+
+/** Train realistic braking aspect limited mode. */
+enum TrainRealisticBrakingAspectLimitedMode {
+	TRBALM_OFF,
+	TRBALM_ON,
+};
+
+/** Visualisation contexts of vehicles and engines. */
+enum EngineImageType : uint8_t {
+	EIT_ON_MAP     = 0x00,  ///< Vehicle drawn in viewport.
+	EIT_IN_DEPOT   = 0x10,  ///< Vehicle drawn in depot.
+	EIT_IN_DETAILS = 0x11,  ///< Vehicle drawn in vehicle details, refit window, ...
+	EIT_IN_LIST    = 0x12,  ///< Vehicle drawn in vehicle list, group list, ...
+	EIT_PURCHASE   = 0x20,  ///< Vehicle drawn in purchase list, autoreplace gui, ...
+	EIT_PREVIEW    = 0x21,  ///< Vehicle drawn in preview window, news, ...
+};
+
+/** Randomisation triggers for vehicles */
+enum class VehicleRandomTrigger : uint8_t {
+	NewCargo, ///< Affected vehicle only: Vehicle is loaded with cargo, after it was empty.
+	Depot, ///< Front vehicle only: Consist arrived in depot.
+	Empty, ///< Front vehicle only: Entire consist is empty.
+	AnyNewCargo, ///< All vehicles in consist: Any vehicle in the consist received new cargo.
+	Callback32, ///< All vehicles in consist: 32 day callback requested rerandomisation
+};
+using VehicleRandomTriggers = EnumBitSet<VehicleRandomTrigger, uint8_t>;
+
+/**
+ * Array with \c VehicleType as index.
+ * @tparam T the type contained within the array.
+ * @tparam Tend the number of elements in the array.
+ */
+template <typename T, VehicleType Tend = VehicleType::CompanyEnd>
+using VehicleTypeIndexArray = EnumClassIndexContainer<std::array<T, to_underlying(Tend)>, VehicleType>;
+
+static const uint32_t VEHICLE_NAME_NO_GROUP = 0x80000000; ///< String constant to not include the vehicle's group name, if using the long name format
+
+#endif /* VEHICLE_TYPE_H */

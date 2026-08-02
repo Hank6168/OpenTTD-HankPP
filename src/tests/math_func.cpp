@@ -1,0 +1,162 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file math_func.cpp Test functionality from core/math_func. */
+
+#include "../stdafx.h"
+
+#include "../3rdparty/catch2/catch.hpp"
+
+#include "../core/math_func.hpp"
+
+#include "../safeguards.h"
+
+TEST_CASE("DivideApproxTest - Negative")
+{
+	CHECK(-2 == DivideApprox(-5, 2));
+	CHECK(2 == DivideApprox(-5, -2));
+	CHECK(-1 == DivideApprox(-66, 80));
+}
+
+TEST_CASE("DivideApproxTest, Divide")
+{
+	CHECK(2 == DivideApprox(5, 2));
+	CHECK(3 == DivideApprox(80, 30));
+	CHECK(3 == DivideApprox(8, 3));
+	CHECK(0 == DivideApprox(3, 8));
+}
+
+TEST_CASE("IntSqrtTest - Zero")
+{
+	CHECK(0 == IntSqrt(0));
+}
+
+TEST_CASE("IntSqrtTest - FindSqRt")
+{
+	CHECK(1 == IntSqrt(1));
+	CHECK(1 == IntSqrt(2));
+	CHECK(2 == IntSqrt(3));
+	CHECK(2 == IntSqrt(4));
+	CHECK(5 == IntSqrt(25));
+	CHECK(10 == IntSqrt(100));
+	CHECK(9 == IntSqrt(88));
+	CHECK(1696 == IntSqrt(2876278));
+	CHECK(0x10000 == IntSqrt(std::numeric_limits<uint32_t>::max()));
+}
+
+TEST_CASE("IntSqrt64Test - FindSqRt")
+{
+	CHECK(1 == IntSqrt64(1));
+	CHECK(1 == IntSqrt64(2));
+	CHECK(2 == IntSqrt64(3));
+	CHECK(2 == IntSqrt64(4));
+	CHECK(5 == IntSqrt64(25));
+	CHECK(10 == IntSqrt64(100));
+	CHECK(9 == IntSqrt64(88));
+	CHECK(1696 == IntSqrt64(2876278));
+	CHECK(0x10000 == IntSqrt64(std::numeric_limits<uint32_t>::max()));
+	CHECK(0x100000000ULL == IntSqrt64(std::numeric_limits<uint64_t>::max()));
+}
+
+
+TEST_CASE("ClampTo")
+{
+	CHECK(0 == ClampTo<uint8_t>(std::numeric_limits<int64_t>::lowest()));
+	CHECK(0 == ClampTo<uint8_t>(-1));
+	CHECK(0 == ClampTo<uint8_t>(0));
+	CHECK(1 == ClampTo<uint8_t>(1));
+
+	CHECK(255 == ClampTo<uint8_t>(std::numeric_limits<uint64_t>::max()));
+	CHECK(255 == ClampTo<uint8_t>(256));
+	CHECK(255 == ClampTo<uint8_t>(255));
+	CHECK(254 == ClampTo<uint8_t>(254));
+
+	CHECK(-128 == ClampTo<int8_t>(std::numeric_limits<int64_t>::lowest()));
+	CHECK(-128 == ClampTo<int8_t>(-129));
+	CHECK(-128 == ClampTo<int8_t>(-128));
+	CHECK(-127 == ClampTo<int8_t>(-127));
+
+	CHECK(127 == ClampTo<int8_t>(std::numeric_limits<uint64_t>::max()));
+	CHECK(127 == ClampTo<int8_t>(128));
+	CHECK(127 == ClampTo<int8_t>(127));
+	CHECK(126 == ClampTo<int8_t>(126));
+
+	CHECK(126 == ClampTo<int64_t>(static_cast<uint8_t>(126)));
+	CHECK(126 == ClampTo<uint64_t>(static_cast<int8_t>(126)));
+	CHECK(0 == ClampTo<uint64_t>(static_cast<int8_t>(-126)));
+	CHECK(0 == ClampTo<uint8_t>(static_cast<int8_t>(-126)));
+
+	/* The realm around 64 bits types is tricky as there is not one type/method that works for all. */
+
+	/* lowest/max uint64_t does not get clamped when clamping to uint64_t. */
+	CHECK(std::numeric_limits<uint64_t>::lowest() == ClampTo<uint64_t>(std::numeric_limits<uint64_t>::lowest()));
+	CHECK(std::numeric_limits<uint64_t>::max() == ClampTo<uint64_t>(std::numeric_limits<uint64_t>::max()));
+
+	/* negative int64_t get clamped to 0. */
+	CHECK(0 == ClampTo<uint64_t>(std::numeric_limits<int64_t>::lowest()));
+	CHECK(0 == ClampTo<uint64_t>(int64_t(-1)));
+	/* positive int64_t remain the same. */
+	CHECK(1 == ClampTo<uint64_t>(int64_t(1)));
+	CHECK(static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) == ClampTo<uint64_t>(std::numeric_limits<int64_t>::max()));
+
+	/* max uint64_t gets clamped to max int64_t. */
+	CHECK(std::numeric_limits<int64_t>::max() == ClampTo<int64_t>(std::numeric_limits<uint64_t>::max()));
+}
+
+
+TEST_CASE("SoftClamp")
+{
+	/* Special behaviour of soft clamp returning the average of min/max when min is higher than max. */
+	CHECK(1250 == SoftClamp(0, 1500, 1000));
+	int million = 1000 * 1000;
+	CHECK(1250 * million == SoftClamp(0, 1500 * million, 1000 * million));
+	CHECK(0 == SoftClamp(0, 1500 * million, -1500 * million));
+}
+
+TEST_CASE("SaturatingAdd")
+{
+	CHECK(SaturatingAdd<uint8_t>(2, 3) == 5);
+	CHECK(SaturatingAdd<uint8_t>(200, 200) == 255);
+	CHECK(SaturatingAdd<uint8_t>(255, 255) == 255);
+	CHECK(SaturatingAdd<uint8_t>(1, 255) == 255);
+	CHECK(SaturatingAdd<uint8_t>(255, 1) == 255);
+	CHECK(SaturatingAdd<uint8_t>(0, 254) == 254);
+}
+
+TEST_CASE("GetBase10DigitsRequired")
+{
+	CHECK(GetBase10DigitsRequired<uint32_t>(0) == 1);
+	CHECK(GetBase10DigitsRequired<uint32_t>(1) == 1);
+	CHECK(GetBase10DigitsRequired<uint32_t>(9) == 1);
+	CHECK(GetBase10DigitsRequired<uint32_t>(10) == 2);
+	CHECK(GetBase10DigitsRequired<uint32_t>(99) == 2);
+	CHECK(GetBase10DigitsRequired<uint32_t>(100) == 3);
+	CHECK(GetBase10DigitsRequired<uint32_t>(999) == 3);
+	CHECK(GetBase10DigitsRequired<uint32_t>(1000) == 4);
+	CHECK(GetBase10DigitsRequired<uint32_t>(9999) == 4);
+	CHECK(GetBase10DigitsRequired<uint32_t>(10000) == 5);
+	CHECK(GetBase10DigitsRequired<uint32_t>(99999) == 5);
+	CHECK(GetBase10DigitsRequired<uint32_t>(100000) == 6);
+	CHECK(GetBase10DigitsRequired<uint32_t>(999999) == 6);
+	CHECK(GetBase10DigitsRequired<uint32_t>(1000000) == 7);
+	CHECK(GetBase10DigitsRequired<uint32_t>(9999999) == 7);
+	CHECK(GetBase10DigitsRequired<uint32_t>(10000000) == 8);
+	CHECK(GetBase10DigitsRequired<uint32_t>(99999999) == 8);
+	CHECK(GetBase10DigitsRequired<uint32_t>(100000000) == 9);
+	CHECK(GetBase10DigitsRequired<uint32_t>(999999999) == 9);
+	CHECK(GetBase10DigitsRequired<uint32_t>(1000000000) == 10);
+	CHECK(GetBase10DigitsRequired<uint32_t>(UINT32_MAX) == 10);
+	CHECK(GetBase10DigitsRequired<uint64_t>(9999999999ULL) == 10);
+	CHECK(GetBase10DigitsRequired<uint64_t>(10000000000ULL) == 11);
+	CHECK(GetBase10DigitsRequired<uint64_t>(99999999999ULL) == 11);
+	CHECK(GetBase10DigitsRequired<uint64_t>(100000000000ULL) == 12);
+	CHECK(GetBase10DigitsRequired<uint64_t>(999999999999ULL) == 12);
+	CHECK(GetBase10DigitsRequired<uint64_t>(1000000000000000000ULL) == 19);
+	CHECK(GetBase10DigitsRequired<uint64_t>(9999999999999999999ULL) == 19);
+	CHECK(GetBase10DigitsRequired<uint64_t>(10000000000000000000ULL) == 20);
+	CHECK(GetBase10DigitsRequired<uint64_t>(UINT64_MAX) == 20);
+}

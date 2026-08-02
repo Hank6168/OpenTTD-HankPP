@@ -1,0 +1,115 @@
+STR_UNIT_NAME_VELOCITY_IMPERIAL                                 :миль/год
+STR_UNIT_NAME_VELOCITY_METRIC                                   :км/год
+STR_UNIT_NAME_VELOCITY_SI                                       :м/с
+STR_UNIT_NAME_VELOCITY_GAMEUNITS                                :клітинок/день
+STR_UNIT_NAME_VELOCITY_GAMEUNITS_WALLCLOCK                      :клітинок/секунду
+
+STR_BUTTON_RENAME                                               :{BLACK}Назва
+
+STR_VEHICLE_TYPE_TRAINS                                         :Поїзди
+STR_VEHICLE_TYPE_ROAD_VEHICLES                                  :Авто
+STR_VEHICLE_TYPE_SHIPS                                          :Кораблі
+STR_VEHICLE_TYPE_AIRCRAFT                                       :Авіація
+
+STR_CONFIG_SETTING_AUTOSAVE                                     :Автозбереження: {STRING}
+STR_CONFIG_SETTING_AUTOSAVE_HELPTEXT                            :Оберіть проміжок між автоматичними збереженнями гри
+
+STR_CONFIG_SETTING_TIMETABLE_IN_TICKS                           :Показувати розклад в тіках замість днів: {STRING}
+STR_CONFIG_SETTING_TIMETABLE_IN_TICKS_HELPTEXT                  :Відображати час руху в розкладах в тіках замість днів
+
+STR_TRANSPARENT_LOADING_TOOLTIP                                 :{BLACK}Змінити прозорість індикаторів завантаження. Утримуйте Ctrl, щоб заблокувати
+
+STR_BUILD_SIGNAL_TOGGLE_ADVANCED_SIGNAL_TOOLTIP                 :BLACK}Показувати просунуті типи сигналів
+
+# Tracerestrict GUI
+
+# Programmable Pre-Signals
+
+#Town select window (for SE only)
+
+STR_MAPGEN_SNOW_LINE_HEIGHT                                     :{BLACK}Висота лінії снігу:
+STR_MAPGEN_SNOW_LINE_UP                                         :{BLACK}Підвищити лінію снігу
+STR_MAPGEN_SNOW_LINE_DOWN                                       :{BLACK}Понизити лінію снігу
+STR_MAPGEN_SNOW_LINE_QUERY_CAPT                                 :{WHITE}Змінити висоту лінії снігу
+
+# Town tooltip
+
+STR_PURCHASE_INFO_DESIGNED                                      :{BLACK}Рік випуску: {GOLD}{NUM}
+
+STR_VEHICLE_STATUS_TRAIN_STOPPING_VEL_END                       :{RED}Зупиняється, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_STATION_VEL_END                  :{LTBLUE}Прямує до {STATION}, {VELOCITY}
+STR_VEHICLE_STATUS_NO_ORDERS_VEL_END                            :{LTBLUE}Без завдань, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_WAYPOINT_VEL_END                 :{LTBLUE}Прямує до {WAYPOINT}, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_DEPOT_VEL_END                    :{ORANGE}Прямує до {DEPOT}, {VELOCITY}
+STR_VEHICLE_STATUS_HEADING_FOR_DEPOT_SERVICE_VEL_END            :{LTBLUE}Техогляд у {DEPOT}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_STATION_VEL_END                 :{LTBLUE}Неможливо досягти {STATION}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_WAYPOINT_VEL_END                :{LTBLUE}Неможливо досягти {WAYPOINT}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_DEPOT_VEL_END                   :{ORANGE}Неможливо досягти {DEPOT}, {VELOCITY}
+STR_VEHICLE_STATUS_CANNOT_REACH_DEPOT_SERVICE_VEL_END           :{LTBLUE}Неможливо досягти {DEPOT}, {VELOCITY}
+
+STR_ORDERS_GO_TO_TOOLTIP_EXTRA                                  :{BLACK}Вставити новий наказ перед вибраним, або додати в кінець списку. Утримуйте Ctrl аби створити наказ як "повне завантаження будь-якого вантажу", для точок маршруту - "без зупинок", і для депо - "обслуговування". Пункт "Спільні накази" або утримування Ctrl дозволяє поділитися спільними наказами з виділеним транспортом. Клац мишою на транспорті копіює з нього накази
+
+STR_TIMETABLE_ARRIVAL_ABBREVIATION                              :П:{SPACE}{SPACE}
+STR_TIMETABLE_DEPARTURE_ABBREVIATION                            :В:{SPACE}{SPACE}
+
+# Cargo type orders Window
+
+# Plans window
+
+# Clear area query
+
+# Plan related errors
+
+STR_TRADITIONAL_TRAIN_NAME                                      :Поїзд №{COMMA}
+STR_TRADITIONAL_ROAD_VEHICLE_NAME                               :Автотранспорт №{COMMA}
+STR_TRADITIONAL_SHIP_NAME                                       :Судно №{COMMA}
+STR_TRADITIONAL_AIRCRAFT_NAME                                   :Борт №{COMMA}
+
+# Scheduled Dispatch
+
+# Modifier key toggle window
+
+STR_CONFIG_SETTING_ALLOW_SHARES                                 :Дозволити придбання акції інших компаній: {STRING}
+STR_CONFIG_SETTING_ALLOW_SHARES_HELPTEXT                        :При включенні дозволяє придбання та продаж акцій команій. Акції компанії стають доступними після досягнення деякого віку.
+
+STR_CONFIG_SETTING_MIN_YEARS_FOR_SHARES                         :Мінімальний вік компанії для торгівлі акціями: {STRING}
+STR_CONFIG_SETTING_MIN_YEARS_FOR_SHARES_HELPTEXT                :Встановіть мінімальний вік компанії, щоб інші могли купувати та продавати акції у них.
+
+STR_COMPANY_VIEW_SHARES_OWNED_BY                                :{WHITE}({COMMA}% у власності {COMPANY})
+
+STR_COMPANY_VIEW_BUY_SHARE_BUTTON                               :{BLACK}Купити 25% акцій компанії
+STR_COMPANY_VIEW_SELL_SHARE_BUTTON                              :{BLACK}Продати 25% акцій компанії
+STR_COMPANY_VIEW_BUY_SHARE_TOOLTIP                              :{BLACK}Купити 25% акцій цієї компанії. Утримуйте Shift для показу вартості цих акцій
+STR_COMPANY_VIEW_SELL_SHARE_TOOLTIP                             :{BLACK}Продати 25% акцій цієї компанії. Утримуйте Shift для показу вартості цих акцій
+
+STR_ERROR_CAN_T_BUY_25_SHARE_IN_THIS                            :{WHITE}Неможливо купити 25% акцій цієї компанії...
+STR_ERROR_CAN_T_SELL_25_SHARE_IN                                :{WHITE}Неможливо продати 25% акцій цієї компанії...
+STR_ERROR_PROTECTED                                             :{WHITE}Ця компанія поки ще не продається...
+
+STR_CONFIG_SETTING_CYCLE_SIGNAL_PBS                             :тільки маршрутні
+
+STR_WARNING_PASSWORD_SECURITY                                   :{YELLOW}Попередження: Адміністратори серверів можуть мати можливість читати будь-який текст, введений тут.
+STR_NETWORK_NEED_COMPANY_PASSWORD_CAPTION                       :{WHITE}Компанія захищена паролем. Введіть пароль
+STR_NETWORK_CLIENT_LIST_ADMIN_COMPANY_UNLOCK                    :Розблокувати пароль
+STR_NETWORK_CLIENT_LIST_ASK_COMPANY_UNLOCK                      :{YELLOW}Дійсно бажаєш скинути пароль компанії '{COMPANY}'?
+
+# Network set password
+STR_COMPANY_PASSWORD_CANCEL                                     :{BLACK}Не запам'ятовувати введений пароль
+STR_COMPANY_PASSWORD_OK                                         :{BLACK}Дати компанії новий пароль
+STR_COMPANY_PASSWORD_CAPTION                                    :{WHITE}Пароль компанії
+STR_COMPANY_PASSWORD_MAKE_DEFAULT                               :{BLACK}Використовувати як стандартний
+STR_COMPANY_PASSWORD_MAKE_DEFAULT_TOOLTIP                       :{BLACK}Використовувати цей пароль для нових компаній
+
+STR_COMPANY_VIEW_PASSWORD                                       :{BLACK}Пароль
+STR_COMPANY_VIEW_PASSWORD_TOOLTIP                               :{BLACK}Пароль захищає вашу компанію від приєднання інших гравців
+STR_COMPANY_VIEW_SET_PASSWORD                                   :{BLACK}Встановлення паролю
+
+# JSON messages
+
+STR_INTRO_NEWGRF_SETTINGS                                       :{BLACK}Налаштування NewGRF
+STR_INTRO_AI_SETTINGS                                           :{BLACK}Налаштування ШІ
+STR_INTRO_GAMESCRIPT_SETTINGS                                   :{BLACK}Налаштування ігрового скрипту
+STR_INTRO_TOOLTIP_NEWGRF_SETTINGS                               :{BLACK}Відкрити налаштування NewGRF
+STR_INTRO_TOOLTIP_AI_SETTINGS                                   :{BLACK}Показати налаштування ШІ
+STR_INTRO_TOOLTIP_GAMESCRIPT_SETTINGS                           :{BLACK}Відкрити налаштування ігрового скрипту
+STR_INTRO_CAPTION_TRADITIONAL                                   :{WHITE}OpenTTD {REV}

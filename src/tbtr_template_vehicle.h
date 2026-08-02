@@ -1,0 +1,213 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file tbtr_template_vehicle.h Template-based train replacement: template vehicle header. */
+
+#ifndef TBTR_TEMPLATE_VEHICLE_H
+#define TBTR_TEMPLATE_VEHICLE_H
+
+#include "tbtr_template_vehicle_type.h"
+
+#include "company_func.h"
+
+#include "vehicle_type.h"
+#include "vehicle_base.h"
+#include "vehicle_func.h"
+
+#include "articulated_vehicles.h"
+#include "newgrf_callbacks.h"
+#include "newgrf_engine.h"
+#include "newgrf_spritegroup.h"
+
+#include "engine_base.h"
+#include "engine_type.h"
+#include "engine_func.h"
+
+#include "sortlist_type.h"
+
+#include "sl/saveload_common.h"
+
+#include "3rdparty/robin_hood/robin_hood.h"
+
+#include "zoom_func.h"
+
+/** A pool allowing to store up to ~64k templates */
+using TemplatePool = Pool<TemplateVehicle, TemplateID, 512>;
+extern TemplatePool _template_pool;
+
+extern robin_hood::unordered_flat_map<GroupID, TemplateID> _template_replacements;
+
+extern bool _template_vehicle_images_valid;
+
+/// listing/sorting templates
+typedef GUIList<const TemplateVehicle *> GUITemplateList;
+
+struct TemplateVehicleImageDimensions {
+	int reference_width;
+	int vehicle_pitch;
+	int cached_veh_length;
+	int vehicle_flip_length;
+
+	void SetFromTrain(const Train *t);
+
+	int GetDisplayImageWidth() const
+	{
+		return ScaleSpriteTrad(this->cached_veh_length * this->reference_width / VEHICLE_LENGTH);
+	}
+
+	int GetOffsetX() const
+	{
+		if (this->vehicle_flip_length >= 0) {
+			return ScaleSpriteTrad((this->vehicle_flip_length - VEHICLE_LENGTH / 2) * this->reference_width / VEHICLE_LENGTH);
+		}
+		return ScaleSpriteTrad(this->reference_width) / 2;
+	}
+
+	int GetOffsetY() const
+	{
+		return ScaleSpriteTrad(this->vehicle_pitch);
+	}
+};
+
+/** Template vehicle control flags. */
+enum TemplateVehicleControlFlags {
+	TVCF_REVERSED                     = 0,      ///< Vehicle is reversed (VehicleRailFlag::Flipped)
+};
+
+struct TemplateVehicle : TemplatePool::PoolItem<&_template_pool>, BaseVehicle {
+private:
+	TemplateVehicle *next = nullptr;           ///< pointer to the next vehicle in the chain
+	TemplateVehicle *previous = nullptr;       ///< NOSAVE: pointer to the previous vehicle in the chain
+	TemplateVehicle *first = nullptr;          ///< NOSAVE: pointer to the first vehicle in the chain
+
+public:
+	friend NamedSaveLoadTable GetTemplateVehicleDesc();
+	friend void AfterLoadTemplateVehicles();
+
+	/* Template usage configuration. */
+	bool reuse_depot_vehicles = false;
+	bool keep_remaining_vehicles = false;
+	bool refit_as_template = true;
+	bool replace_old_only = false;
+
+	/* Things derived from a virtual train. */
+	RailTypes railtypes{};
+	Owner owner = INVALID_OWNER;
+
+	EngineID engine_type;                 ///< The type of engine used for this vehicle.
+	CargoType cargo_type = INVALID_CARGO; ///< type of cargo this vehicle is carrying
+	uint16_t cargo_cap = 0;               ///< total capacity
+	uint8_t cargo_subtype = 0;
+
+	uint8_t subtype = 0;
+
+	uint16_t real_consist_length = 0;
+
+	uint16_t max_speed = 0;
+	uint32_t power = 0;
+	uint32_t empty_weight = 0;
+	uint32_t full_weight = 0;
+	uint32_t max_te = 0;
+	uint32_t air_drag = 0;
+
+	uint32_t ctrl_flags = 0;            ///< See: TemplateVehicleControlFlags
+	std::string name{};
+
+	VehicleSpriteSeq sprite_seq{};                     ///< NOSAVE: Vehicle appearance.
+	TemplateVehicleImageDimensions image_dimensions{}; ///< NOSAVE: image dimensions
+	SpriteID colourmap{};                              ///< NOSAVE: cached colour mapping
+
+	TemplateVehicle(TemplateID index, VehicleType type = VehicleType::Invalid, EngineID e = EngineID::Invalid(), Owner = _local_company);
+
+	TemplateVehicle(TemplateID index, EngineID eid) : PoolItemBase(index), first(this), engine_type(eid)
+	{
+		this->sprite_seq.count = 1;
+	}
+
+	~TemplateVehicle();
+
+	inline TemplateVehicle *Next() const { return this->next; }
+	inline TemplateVehicle *Prev() const { return this->previous; }
+	inline TemplateVehicle *First() const { return this->first; }
+
+	void SetNext(TemplateVehicle *v);
+	void SetPrev(TemplateVehicle *v);
+	void SetFirst(TemplateVehicle *v);
+
+	TemplateVehicle *GetNextUnit() const;
+
+	bool IsSetReuseDepotVehicles() const { return this->reuse_depot_vehicles; }
+	bool IsSetKeepRemainingVehicles() const { return this->keep_remaining_vehicles; }
+	bool IsSetRefitAsTemplate() const { return this->refit_as_template; }
+	bool IsReplaceOldOnly() const { return this->replace_old_only; }
+	void SetReuseDepotVehicles(bool reuse) { this->reuse_depot_vehicles = reuse; }
+	void SetKeepRemainingVehicles(bool keep) { this->keep_remaining_vehicles = keep; }
+	void SetRefitAsTemplate(bool as_template) { this->refit_as_template = as_template; }
+	void SetReplaceOldOnly(bool old_only) { this->replace_old_only = old_only; }
+
+	bool IsPrimaryVehicle() const { return this->IsFrontEngine(); }
+	inline bool IsFrontEngine() const { return HasBit(this->subtype, GVSF_FRONT); }
+	inline bool HasArticulatedPart() const { return this->Next() != nullptr && this->Next()->IsArticulatedPart(); }
+
+	inline bool IsEngine() const { return HasBit(this->subtype, GVSF_ENGINE); }
+	inline bool IsWagon() const { return HasBit(this->subtype, GVSF_WAGON); }
+
+	inline bool IsArticulatedPart() const { return HasBit(this->subtype, GVSF_ARTICULATED_PART); }
+	inline bool IsMultiheaded() const { return HasBit(this->subtype, GVSF_MULTIHEADED); }
+	inline bool IsRearDualheaded() const { return this->IsMultiheaded() && !this->IsEngine(); }
+
+	inline bool IsFreeWagonChain() const { return HasBit(this->subtype, GVSF_FREE_WAGON); }
+
+	inline void SetFrontEngine()     { SetBit(this->subtype, GVSF_FRONT); }
+	inline void SetEngine()          { SetBit(this->subtype, GVSF_ENGINE); }
+	inline void SetArticulatedPart() { SetBit(this->subtype, GVSF_ARTICULATED_PART); }
+	inline void SetMultiheaded()     { SetBit(this->subtype, GVSF_MULTIHEADED); }
+
+	inline void SetWagon() { SetBit(this->subtype, GVSF_WAGON); }
+	inline void SetFreeWagon() { SetBit(this->subtype, GVSF_FREE_WAGON); }
+
+	inline uint16_t GetRealLength() const { return this->real_consist_length; }
+	inline void SetRealLength(uint16_t len) { this->real_consist_length = len; }
+
+	SpriteID GetImage(Direction) const;
+	SpriteID GetSpriteID() const;
+
+	uint NumGroupsUsingTemplate() const;
+};
+
+TemplateID GetTemplateIDByGroupID(GroupID gid);
+TemplateID GetTemplateIDByGroupIDRecursive(GroupID gid);
+void RemoveTemplateReplacement(GroupID gid);
+void IssueTemplateReplacement(GroupID gid, TemplateID tid);
+void RemoveTemplateReplacementsReferencingTemplate(TemplateID tid);
+bool ShouldServiceTrainForTemplateReplacement(const Train *t, const TemplateVehicle *tv);
+void MarkTrainsUsingTemplateAsPendingTemplateReplacement(const TemplateVehicle *tv);
+
+void RemoveTemplateReplacementsFromGroupToBeDeleted(const Group *g);
+
+void ClearTemplateReplacements();
+void ReindexTemplateReplacementsForGroup(GroupID gid);
+void ReindexTemplateReplacements();
+
+/**
+ * Guard to inhibit re-indexing of the recursive group to template replacement cache,
+ * and to disable group-based VehicleFlag::ReplacementPending changes.
+ * May be used recursively.
+ */
+struct ReindexTemplateReplacementsRecursiveGuard {
+	ReindexTemplateReplacementsRecursiveGuard();
+	~ReindexTemplateReplacementsRecursiveGuard();
+
+	ReindexTemplateReplacementsRecursiveGuard(const ReindexTemplateReplacementsRecursiveGuard &copysrc) = delete;
+	ReindexTemplateReplacementsRecursiveGuard(ReindexTemplateReplacementsRecursiveGuard &&movesrc) = delete;
+	ReindexTemplateReplacementsRecursiveGuard &operator=(const ReindexTemplateReplacementsRecursiveGuard &) = delete;
+	ReindexTemplateReplacementsRecursiveGuard &operator=(ReindexTemplateReplacementsRecursiveGuard &&) = delete;
+};
+
+int GetTemplateVehicleEstimatedMaxAchievableSpeed(const TemplateVehicle *tv, int mass, const int speed_cap);
+
+#endif /* TBTR_TEMPLATE_VEHICLE_H */

@@ -109,6 +109,48 @@ LandPurchaseCostBreakdown GetLandPurchaseCostBreakdown(TileIndex tile, Money ori
 LandPurchaseCostBreakdown GetLandPurchaseCostBreakdownFromTotal(TileIndex tile, Money total_cost, DoCommandFlags flags = {}, bool force_purchase = false);
 const char *GetLandPurchaseCostStatusName(LandPurchaseCostStatus status);
 
+/** Low-risk infrastructure categories supported by Patch 006. */
+enum class LandInfrastructureType : uint8_t {
+	Rail,
+	Road,
+	RailStation,
+	RoadStop,
+};
+
+/** Reason why an infrastructure land-value surcharge is not applied. */
+enum class LandInfrastructureCostStatus : uint8_t {
+	Chargeable,
+	InvalidTile,
+	Disabled,
+	ZeroPercent,
+	ZeroUnits,
+	NoCompany,
+	Editor,
+	WorldGeneration,
+	TownOperation,
+	Bankruptcy,
+};
+
+/** Read-only decomposition of one infrastructure land-value charge. */
+struct LandInfrastructureCostBreakdown {
+	Money base_unit = 0;
+	Money land_value_surcharge = 0;
+	LandValueScore final_score = LAND_VALUE_BASE;
+	uint16_t infrastructure_percent = 0;
+	uint32_t units = 0;
+	LandInfrastructureType type = LandInfrastructureType::Rail;
+	LandInfrastructureCostStatus status = LandInfrastructureCostStatus::InvalidTile;
+	bool enabled = false;
+
+	bool IsChargeable() const { return this->status == LandInfrastructureCostStatus::Chargeable; }
+};
+
+Money CalculateLandInfrastructureSurcharge(Money base_unit, LandValueScore final_score, uint16_t infrastructure_percent, uint32_t units, bool enabled);
+Money GetLandInfrastructureBaseUnit(LandInfrastructureType type);
+LandInfrastructureCostBreakdown GetLandInfrastructureCostBreakdown(TileIndex tile, LandInfrastructureType type, uint32_t units = 1, DoCommandFlags flags = {});
+const char *GetLandInfrastructureTypeName(LandInfrastructureType type);
+const char *GetLandInfrastructureCostStatusName(LandInfrastructureCostStatus status);
+
 void InitializeTownLandValue(Town *town);
 void InitializeLoadedTownLandValues(bool has_saved_land_value);
 void RebuildLandValueCache(Town *town);

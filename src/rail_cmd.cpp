@@ -42,6 +42,7 @@
 #include "newgrf_newsignals.h"
 #include "pathfinder/water_regions.h"
 #include "landscape_cmd.h"
+#include "land_value.h"
 #include "rail_cmd.h"
 #include "object_base.h"
 
@@ -700,6 +701,7 @@ static void ReReserveTrainPath(Train *v)
 CommandCost CmdBuildSingleRail(DoCommandFlags flags, TileIndex tile, RailType railtype, Track track, BuildRailTrackFlags build_flags)
 {
 	CommandCost cost(ExpensesType::Construction);
+	const bool charge_land_occupation = IsValidTile(tile) && !IsTileType(tile, TileType::Railway) && !IsTileType(tile, TileType::TunnelBridge);
 
 	_rail_track_endtile = INVALID_TILE;
 
@@ -952,6 +954,7 @@ CommandCost CmdBuildSingleRail(DoCommandFlags flags, TileIndex tile, RailType ra
 	}
 
 	cost.AddCost(RailBuildCost(railtype));
+	if (charge_land_occupation) cost.AddCost(GetLandInfrastructureCostBreakdown(tile, LandInfrastructureType::Rail, 1, flags).land_value_surcharge);
 	_rail_track_endtile = tile;
 	return cost;
 }

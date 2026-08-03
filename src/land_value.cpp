@@ -325,6 +325,98 @@ const char *GetLandPurchaseCostStatusName(LandPurchaseCostStatus status)
 	NOT_REACHED();
 }
 
+/** Calculate a non-negative, saturating infrastructure surcharge in the frozen score-percent-units order. */
+Money CalculateLandInfrastructureSurcharge(Money base_unit, LandValueScore final_score, uint16_t infrastructure_percent, uint32_t units, bool enabled)
+{
+	if (!enabled || base_unit <= 0 || infrastructure_percent == 0 || units == 0) return 0;
+
+	const uint64_t limit = static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+	uint64_t surcharge = ApplyLandValueScore(static_cast<uint64_t>(base_unit.base()), final_score, limit);
+	surcharge = ScaleValue(surcharge, infrastructure_percent, 100, limit);
+	if (surcharge == 0) return 0;
+	surcharge = units > limit / surcharge ? limit : surcharge * units;
+	return Money{static_cast<int64_t>(surcharge)};
+}
+
+/** Return a conservative inflation-adjusted land unit without coupling to NewGRF construction prices. */
+Money GetLandInfrastructureBaseUnit(LandInfrastructureType type)
+{
+	const Money clear_grass = std::max<Money>(_price[Price::ClearGrass], 0);
+	switch (type) {
+		case LandInfrastructureType::Rail:        return clear_grass * 2;
+		case LandInfrastructureType::Road:        return clear_grass;
+		case LandInfrastructureType::RailStation: return clear_grass * 3;
+		case LandInfrastructureType::RoadStop:    return clear_grass * 2;
+	}
+	NOT_REACHED();
+}
+
+/** Return a deterministic, read-only infrastructure land-cost breakdown. */
+LandInfrastructureCostBreakdown GetLandInfrastructureCostBreakdown(TileIndex tile, LandInfrastructureType type, uint32_t units, DoCommandFlags flags)
+{
+	LandInfrastructureCostBreakdown result{};
+	result.type = type;
+	result.units = units;
+	result.enabled = IsLandValueEnabled();
+	result.infrastructure_percent = _settings_game.economy.land_value_infrastructure_percent;
+	result.base_unit = GetLandInfrastructureBaseUnit(type);
+
+	if (!IsValidTile(tile)) {
+		result.status = LandInfrastructureCostStatus::InvalidTile;
+		return result;
+	}
+	result.final_score = GetFinalLandValueScore(tile);
+	if (!result.enabled) {
+		result.status = LandInfrastructureCostStatus::Disabled;
+	} else if (result.infrastructure_percent == 0) {
+		result.status = LandInfrastructureCostStatus::ZeroPercent;
+	} else if (units == 0) {
+		result.status = LandInfrastructureCostStatus::ZeroUnits;
+	} else if (_game_mode == GameMode::Editor) {
+		result.status = LandInfrastructureCostStatus::Editor;
+	} else if (_generating_world) {
+		result.status = LandInfrastructureCostStatus::WorldGeneration;
+	} else if (flags.Test(DoCommandFlag::Town)) {
+		result.status = LandInfrastructureCostStatus::TownOperation;
+	} else if (flags.Test(DoCommandFlag::Bankrupt)) {
+		result.status = LandInfrastructureCostStatus::Bankruptcy;
+	} else if (!Company::IsValidID(_current_company)) {
+		result.status = LandInfrastructureCostStatus::NoCompany;
+	} else {
+		result.status = LandInfrastructureCostStatus::Chargeable;
+		result.land_value_surcharge = CalculateLandInfrastructureSurcharge(result.base_unit, result.final_score, result.infrastructure_percent, units, true);
+	}
+	return result;
+}
+
+const char *GetLandInfrastructureTypeName(LandInfrastructureType type)
+{
+	switch (type) {
+		case LandInfrastructureType::Rail:        return "rail";
+		case LandInfrastructureType::Road:        return "road";
+		case LandInfrastructureType::RailStation: return "rail_station";
+		case LandInfrastructureType::RoadStop:    return "road_stop";
+	}
+	NOT_REACHED();
+}
+
+const char *GetLandInfrastructureCostStatusName(LandInfrastructureCostStatus status)
+{
+	switch (status) {
+		case LandInfrastructureCostStatus::Chargeable:      return "chargeable";
+		case LandInfrastructureCostStatus::InvalidTile:     return "invalid_tile";
+		case LandInfrastructureCostStatus::Disabled:        return "disabled";
+		case LandInfrastructureCostStatus::ZeroPercent:     return "zero_percent";
+		case LandInfrastructureCostStatus::ZeroUnits:       return "zero_units";
+		case LandInfrastructureCostStatus::NoCompany:       return "no_company";
+		case LandInfrastructureCostStatus::Editor:          return "editor";
+		case LandInfrastructureCostStatus::WorldGeneration: return "world_generation";
+		case LandInfrastructureCostStatus::TownOperation:   return "town_operation";
+		case LandInfrastructureCostStatus::Bankruptcy:      return "bankruptcy";
+	}
+	NOT_REACHED();
+}
+
 /** Initialize a town's persistent land-value score to the neutral base value. */
 void InitializeTownLandValue(Town *town)
 {

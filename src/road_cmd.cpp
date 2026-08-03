@@ -44,6 +44,7 @@
 #include "roadstop_base.h"
 #include "scope.h"
 #include "landscape_cmd.h"
+#include "land_value.h"
 #include "rail_cmd.h"
 #include "economy_func.h"
 #include "maintenance_func.h"
@@ -1012,6 +1013,9 @@ CommandCost CmdBuildRoad(DoCommandFlags flags, TileIndex tile, RoadBits pieces, 
 {
 	CompanyID company = _current_company;
 	CommandCost cost(ExpensesType::Construction);
+	const RoadTramType requested_rtt = ValParamRoadType(rt) ? GetRoadTramType(rt) : RoadTramType::Road;
+	const bool charge_land_occupation = IsValidTile(tile) && !IsTileType(tile, TileType::TunnelBridge) &&
+		(!MayHaveRoad(tile) || GetRoadType(tile, requested_rtt) == INVALID_ROADTYPE);
 
 	RoadBits existing{};
 	RoadBits other_bits{};
@@ -1194,7 +1198,9 @@ CommandCost CmdBuildRoad(DoCommandFlags flags, TileIndex tile, RoadBits pieces, 
 				}
 				MarkTileDirtyByTile(tile);
 			}
-			return CommandCost(ExpensesType::Construction, 2 * RoadBuildCost(rt));
+			CommandCost crossing_cost(ExpensesType::Construction, 2 * RoadBuildCost(rt));
+			if (charge_land_occupation) crossing_cost.AddCost(GetLandInfrastructureCostBreakdown(tile, LandInfrastructureType::Road, 1, flags).land_value_surcharge);
+			return crossing_cost;
 		}
 
 		case TileType::Station: {
@@ -1500,6 +1506,7 @@ do_clear:;
 			CountBits(pieces);
 
 	cost.AddCost(num_pieces * RoadBuildCost(rt));
+	if (charge_land_occupation) cost.AddCost(GetLandInfrastructureCostBreakdown(tile, LandInfrastructureType::Road, 1, flags).land_value_surcharge);
 
 	if (flags.Test(DoCommandFlag::Execute)) {
 		switch (GetTileType(tile)) {

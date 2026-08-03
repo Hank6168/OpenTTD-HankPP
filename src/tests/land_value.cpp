@@ -25,6 +25,10 @@
 #include "../object_cmd.h"
 #include "../object_type.h"
 #include "../openttd.h"
+#include "../rail_cmd.h"
+#include "../rail.h"
+#include "../road_cmd.h"
+#include "../road.h"
 #include "../settings_internal.h"
 #include "../settings_type.h"
 #include "../town.h"
@@ -163,6 +167,107 @@ TEST_CASE("Land purchase surcharge uses bounded integer fixed point")
 		CHECK(percent_cost >= previous_percent_cost);
 		previous_percent_cost = percent_cost;
 	}
+}
+
+TEST_CASE("Land infrastructure surcharge uses bounded integer fixed point")
+{
+	CHECK(CalculateLandInfrastructureSurcharge(100, LAND_VALUE_BASE, 100, 1, true) == 100);
+	CHECK(CalculateLandInfrastructureSurcharge(100, LandValueScore{500}, 25, 1, true) == 125);
+	CHECK(CalculateLandInfrastructureSurcharge(100, LandValueScore{2500}, 25, 3, true) == 1875);
+	CHECK(CalculateLandInfrastructureSurcharge(100, LAND_VALUE_MAX, 400, UINT32_MAX, true) == Money{171798691800000});
+	CHECK(CalculateLandInfrastructureSurcharge(Money::max(), LAND_VALUE_MAX, 400, UINT32_MAX, true) == Money::max());
+	CHECK(CalculateLandInfrastructureSurcharge(100, LAND_VALUE_BASE, 0, 1, true) == 0);
+	CHECK(CalculateLandInfrastructureSurcharge(100, LAND_VALUE_BASE, 100, 0, true) == 0);
+	CHECK(CalculateLandInfrastructureSurcharge(100, LAND_VALUE_BASE, 100, 1, false) == 0);
+	/* Frozen order: floor(base * score / 100), then percent / 100, then units. */
+	CHECK(CalculateLandInfrastructureSurcharge(101, LandValueScore{333}, 25, 3, true) == 252);
+
+	Money previous = 0;
+	for (uint32_t score = 0; score <= LAND_VALUE_MAX.base(); ++score) {
+		const Money current = CalculateLandInfrastructureSurcharge(100, LandValueScore{score}, 25, 1, true);
+		CHECK(current >= previous);
+		previous = current;
+	}
+}
+
+TEST_CASE("Land infrastructure breakdown applies shared context and conservative base units")
+{
+	ResetLandValueTestWorld();
+	_price[Price::ClearGrass] = 100;
+	const TileIndex tile = TileXY(10, 10);
+	MakeClear(tile, ClearGround::Grass, 0);
+	CHECK(GetLandInfrastructureCostBreakdown(INVALID_TILE, LandInfrastructureType::Rail).status == LandInfrastructureCostStatus::InvalidTile);
+	CHECK(GetLandInfrastructureCostBreakdown(tile, LandInfrastructureType::Rail).status == LandInfrastructureCostStatus::NoCompany);
+
+	_company_pool.CleanPool();
+	REQUIRE(Company::CanAllocateItem());
+	Company *company = Company::Create();
+	company->money = Money::max();
+	_current_company = company->index;
+	_game_mode = GameMode::Normal;
+	_generating_world = false;
+
+	CHECK(GetLandInfrastructureBaseUnit(LandInfrastructureType::Road) == 100);
+	CHECK(GetLandInfrastructureBaseUnit(LandInfrastructureType::Rail) == 200);
+	CHECK(GetLandInfrastructureBaseUnit(LandInfrastructureType::RoadStop) == 200);
+	CHECK(GetLandInfrastructureBaseUnit(LandInfrastructureType::RailStation) == 300);
+	CHECK(GetLandInfrastructureCostBreakdown(tile, LandInfrastructureType::Rail).land_value_surcharge == 50);
+	_settings_game.economy.land_value_infrastructure_percent = 0;
+	CHECK(GetLandInfrastructureCostBreakdown(tile, LandInfrastructureType::Rail).status == LandInfrastructureCostStatus::ZeroPercent);
+	_settings_game.economy.land_value_infrastructure_percent = 25;
+	CHECK(GetLandInfrastructureCostBreakdown(tile, LandInfrastructureType::Rail, 0).status == LandInfrastructureCostStatus::ZeroUnits);
+	CHECK(GetLandInfrastructureCostBreakdown(tile, LandInfrastructureType::Rail, 1, DoCommandFlag::Town).status == LandInfrastructureCostStatus::TownOperation);
+
+	_current_company = COMPANY_SPECTATOR;
+	_company_pool.CleanPool();
+}
+
+TEST_CASE("Single-tile rail construction charges infrastructure land once per newly occupied tile")
+{
+	ResetLandValueTestWorld();
+	ResetRailTypes();
+	_price[Price::ClearGrass] = 100;
+	const TileIndex tile = TileXY(10, 10);
+	MakeClear(tile, ClearGround::Grass, 0);
+	Town *town = CreateLandValueTestTown(10, 10);
+	town->land_value_score = 500;
+	RebuildLandValueCache(town);
+
+	_company_pool.CleanPool();
+	REQUIRE(Company::CanAllocateItem());
+	Company *company = Company::Create();
+	company->money = Money::max();
+	company->clear_limit = UINT32_MAX;
+	company->avail_railtypes.Set(RAILTYPE_RAIL);
+	_current_company = company->index;
+	_game_mode = GameMode::Normal;
+	_generating_world = false;
+
+	_settings_game.economy.land_value_infrastructure_percent = 0;
+	const CommandCost original = Command<Commands::BuildRail>::Do(DoCommandFlag::QueryCost, tile, RAILTYPE_RAIL, TRACK_X, BuildRailTrackFlags::None);
+	INFO(original.SummaryMessage(0));
+	INFO(original.GetErrorMessage());
+	REQUIRE(original.Succeeded());
+	_settings_game.economy.land_value_infrastructure_percent = 25;
+	const CommandCost query = Command<Commands::BuildRail>::Do(DoCommandFlag::QueryCost, tile, RAILTYPE_RAIL, TRACK_X, BuildRailTrackFlags::None);
+	REQUIRE(query.Succeeded());
+	CHECK(query.GetCost() - original.GetCost() == 250);
+	const CommandCost execute = Command<Commands::BuildRail>::Do(DoCommandFlag::Execute, tile, RAILTYPE_RAIL, TRACK_X, BuildRailTrackFlags::None);
+	REQUIRE(execute.Succeeded());
+	CHECK(execute.GetCost() == query.GetCost());
+
+	_settings_game.economy.land_value_infrastructure_percent = 0;
+	const CommandCost second_original = Command<Commands::BuildRail>::Do(DoCommandFlag::QueryCost, tile, RAILTYPE_RAIL, TRACK_Y, BuildRailTrackFlags::None);
+	_settings_game.economy.land_value_infrastructure_percent = 25;
+	const CommandCost second = Command<Commands::BuildRail>::Do(DoCommandFlag::QueryCost, tile, RAILTYPE_RAIL, TRACK_Y, BuildRailTrackFlags::None);
+	REQUIRE(second_original.Succeeded());
+	REQUIRE(second.Succeeded());
+	CHECK(second.GetCost() == second_original.GetCost());
+
+	_current_company = COMPANY_SPECTATOR;
+	_company_pool.CleanPool();
+	_town_pool.CleanPool();
+	RebuildTownKdtree();
 }
 
 TEST_CASE("Land purchase breakdown handles invalid tiles and exemption contexts")

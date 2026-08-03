@@ -3706,6 +3706,20 @@ static bool ConDumpLandValue(std::span<std::string_view> argv)
 	IConsolePrint(CC_DEFAULT, "calculated surcharge: {}", purchase.land_value_surcharge);
 	IConsolePrint(CC_DEFAULT, "chargeable context: {}", purchase.IsChargeable() ? "true" : "false");
 	IConsolePrint(CC_DEFAULT, "charge status: {}", GetLandPurchaseCostStatusName(purchase.status));
+	IConsolePrint(CC_DEFAULT, "infrastructure_percent: {}", _settings_game.economy.land_value_infrastructure_percent);
+	static constexpr LandInfrastructureType infrastructure_types[] = {
+		LandInfrastructureType::Rail,
+		LandInfrastructureType::Road,
+		LandInfrastructureType::RailStation,
+		LandInfrastructureType::RoadStop,
+	};
+	for (LandInfrastructureType type : infrastructure_types) {
+		const LandInfrastructureCostBreakdown infrastructure = GetLandInfrastructureCostBreakdown(*tile, type);
+		IConsolePrint(CC_DEFAULT, "infrastructure {} base_unit: {}", GetLandInfrastructureTypeName(type), infrastructure.base_unit);
+		IConsolePrint(CC_DEFAULT, "infrastructure {} surcharge_per_tile: {}", GetLandInfrastructureTypeName(type), infrastructure.land_value_surcharge);
+		IConsolePrint(CC_DEFAULT, "infrastructure {} status: {}", GetLandInfrastructureTypeName(type), GetLandInfrastructureCostStatusName(infrastructure.status));
+	}
+	IConsolePrint(CC_DEFAULT, "infrastructure signal status: deferred_patch_006_1");
 	return true;
 }
 

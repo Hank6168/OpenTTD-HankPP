@@ -64,6 +64,7 @@
 #include "newgrf_roadstop.h"
 #include "core/math_func.hpp"
 #include "landscape_cmd.h"
+#include "land_value.h"
 #include "rail_cmd.h"
 
 #include "widgets/station_widget.h"
@@ -1694,6 +1695,10 @@ CommandCost CmdBuildRailStation(DoCommandFlags flags, TileIndex tile_org, RailTy
 		}
 	}
 
+	for (TileIndex tile : new_location) {
+		if (!IsRailStationTile(tile)) cost.AddCost(GetLandInfrastructureCostBreakdown(tile, LandInfrastructureType::RailStation, 1, flags).land_value_surcharge);
+	}
+
 	if (flags.Test(DoCommandFlag::Execute)) {
 		st->train_station = new_location;
 		st->AddFacility(StationFacility::Train, new_location.tile);
@@ -2280,6 +2285,12 @@ CommandCost CmdBuildRoadStop(DoCommandFlags flags, TileIndex tile, uint8_t width
 		if (roadstopspec->callback_mask.Test(RoadStopCallbackMask::Avail)) {
 			uint16_t cb_res = GetRoadStopCallback(CBID_STATION_AVAILABILITY, 0, 0, roadstopspec, nullptr, INVALID_TILE, rt, station_type, 0);
 			if (cb_res != CALLBACK_FAILED && !Convert8bitBooleanCallback(roadstopspec->grf_prop.grffile, CBID_STATION_AVAILABILITY, cb_res)) return CMD_ERROR;
+		}
+	}
+
+	for (TileIndex cur_tile : roadstop_area) {
+		if (!(IsTileType(cur_tile, TileType::Station) && IsAnyRoadStop(cur_tile))) {
+			cost.AddCost(GetLandInfrastructureCostBreakdown(cur_tile, LandInfrastructureType::RoadStop, 1, flags).land_value_surcharge);
 		}
 	}
 

@@ -3684,9 +3684,19 @@ static bool ConDumpLandValue(std::span<std::string_view> argv)
 	if (town == nullptr) {
 		IConsolePrint(CC_DEFAULT, "Nearest TownID: none");
 		IConsolePrint(CC_DEFAULT, "Nearest town name: none");
+		IConsolePrint(CC_DEFAULT, "town development demand status: no_town");
 	} else {
 		IConsolePrint(CC_DEFAULT, "Nearest TownID: {}", result.town_id.base());
 		IConsolePrint(CC_DEFAULT, "Nearest town name: {}", GetString(STR_TOWN_NAME, result.town_id));
+		const TownDevelopmentDemandCache development = GetTownDevelopmentDemand(town);
+		IConsolePrint(CC_DEFAULT, "town_development_mass: {}", development.mass.base());
+		IConsolePrint(CC_DEFAULT, "development_influence_percent: {}", _settings_game.economy.land_value_growth_percent);
+		IConsolePrint(CC_DEFAULT, "affordability: {}", development.affordability);
+		IConsolePrint(CC_DEFAULT, "residential_demand: {}", development.residential_demand);
+		IConsolePrint(CC_DEFAULT, "commercial_demand: {}", development.commercial_demand);
+		IConsolePrint(CC_DEFAULT, "industrial_demand: {}", development.industrial_demand);
+		IConsolePrint(CC_DEFAULT, "overall_demand: {}", development.overall_demand);
+		IConsolePrint(CC_DEFAULT, "town development demand status: {}", development.active ? "active" : "neutral");
 	}
 
 	IConsolePrint(CC_DEFAULT, "Town persistent score: {}", result.town_score.base());

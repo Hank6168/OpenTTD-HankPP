@@ -34,6 +34,25 @@ static constexpr uint8_t LAND_VALUE_DISTANCE_BAND_COUNT = 64; ///< Number of cac
 
 using LandValueDistanceScores = std::array<LandValueScore, LAND_VALUE_DISTANCE_BAND_COUNT>;
 
+/** A bounded, sub-linear measure of a town's existing development scale. */
+struct TownDevelopmentMassTag : public StrongType::TypedefTraits<uint32_t, StrongType::Compare> {};
+using TownDevelopmentMass = StrongType::Typedef<TownDevelopmentMassTag>;
+
+static constexpr uint16_t TOWN_DEVELOPMENT_DEMAND_NEUTRAL = 10000; ///< Neutral demand (100%).
+static constexpr uint16_t TOWN_DEVELOPMENT_DEMAND_MAX = 20000;     ///< Maximum demand (200%).
+static constexpr TownDevelopmentMass TOWN_DEVELOPMENT_MASS_MAX{20000};
+
+/** In-memory derived development demand for a town. This structure is never saved. */
+struct TownDevelopmentDemandCache {
+	TownDevelopmentMass mass{0};
+	uint16_t overall_demand = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+	uint16_t residential_demand = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+	uint16_t commercial_demand = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+	uint16_t industrial_demand = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+	uint16_t affordability = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+	bool active = false;
+};
+
 /** In-memory derived land-value data for a town. */
 struct LandValueCache {
 	LandValueDistanceScores distance_score = [] {

@@ -232,6 +232,145 @@ LandValueScore GetFinalLandValueScore(TileIndex tile)
 	return CombineLandValueScoreAndModifier(GetLandValueScore(tile), GetLandValueModifier(tile));
 }
 
+/** Clamp a development-demand value to its public fixed-point range. */
+static uint16_t ClampTownDevelopmentDemand(int64_t demand)
+{
+	return static_cast<uint16_t>(std::clamp<int64_t>(demand, 0, TOWN_DEVELOPMENT_DEMAND_MAX));
+}
+
+/** Scale a full-strength factor's deviation from neutral by the configured influence. */
+static uint16_t ScaleTownDevelopmentDemand(uint16_t full_demand, uint8_t influence_percent, bool enabled)
+{
+	if (!enabled || influence_percent == 0) return TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+
+	const int64_t influence = std::min<uint32_t>(influence_percent, 100);
+	const int64_t delta = static_cast<int64_t>(full_demand) - TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+	return ClampTownDevelopmentDemand(TOWN_DEVELOPMENT_DEMAND_NEUTRAL + delta * influence / 100);
+}
+
+/** Return the frozen step curve value for a land-value score. */
+static uint16_t GetTownDevelopmentCurveValue(LandValueScore score, const std::array<uint16_t, 7> &curve)
+{
+	const uint32_t value = ClampLandValueScore(score.base()).base();
+	if (value < 150) return curve[0];
+	if (value < 300) return curve[1];
+	if (value < 600) return curve[2];
+	if (value < 1200) return curve[3];
+	if (value < 2500) return curve[4];
+	if (value < 5000) return curve[5];
+	return curve[6];
+}
+
+/** Apply a bounded, deliberately mild town-scale adjustment to a land-value tendency. */
+static uint16_t ApplyTownDevelopmentMass(uint16_t land_tendency, TownDevelopmentMass mass)
+{
+	const int32_t bounded_mass = static_cast<int32_t>(std::min(mass.base(), TOWN_DEVELOPMENT_MASS_MAX.base()));
+	const int32_t mass_adjustment = (bounded_mass - TOWN_DEVELOPMENT_DEMAND_NEUTRAL) / 3;
+	return ClampTownDevelopmentDemand(static_cast<int64_t>(land_tendency) + mass_adjustment);
+}
+
+/** Calculate a stable, sub-linear development scale from already cached town data. */
+TownDevelopmentMass CalculateTownDevelopmentMass(uint32_t population, uint32_t num_houses, bool larger_town)
+{
+	uint64_t mass = static_cast<uint64_t>(IntSqrt(population)) * 48;
+	mass += static_cast<uint64_t>(IntSqrt(num_houses)) * 32;
+	if (larger_town) mass += 1000;
+	return TownDevelopmentMass{static_cast<uint32_t>(std::min<uint64_t>(mass, TOWN_DEVELOPMENT_MASS_MAX.base()))};
+}
+
+/** Calculate ordinary-development land affordability from the frozen land-value curve. */
+uint16_t CalculateLandAffordability(LandValueScore score, uint8_t influence_percent, bool enabled)
+{
+	static constexpr std::array<uint16_t, 7> CURVE = {10500, 12500, 14000, 12000, 9000, 6500, 4000};
+	return ScaleTownDevelopmentDemand(GetTownDevelopmentCurveValue(score, CURVE), influence_percent, enabled);
+}
+
+/** Calculate residential development demand without selecting or constructing houses. */
+uint16_t CalculateResidentialDevelopmentDemand(TownDevelopmentMass mass, LandValueScore score, uint8_t influence_percent, bool enabled)
+{
+	static constexpr std::array<uint16_t, 7> CURVE = {8500, 11500, 13000, 12000, 10000, 8000, 6500};
+	const uint16_t full_demand = ApplyTownDevelopmentMass(GetTownDevelopmentCurveValue(score, CURVE), mass);
+	return ScaleTownDevelopmentDemand(full_demand, influence_percent, enabled);
+}
+
+/** Calculate commercial development demand without inspecting transport service or station data. */
+uint16_t CalculateCommercialDevelopmentDemand(TownDevelopmentMass mass, LandValueScore score, uint8_t influence_percent, bool enabled)
+{
+	static constexpr std::array<uint16_t, 7> CURVE = {6000, 7500, 9500, 11500, 13500, 15000, 15000};
+	const uint16_t full_demand = ApplyTownDevelopmentMass(GetTownDevelopmentCurveValue(score, CURVE), mass);
+	return ScaleTownDevelopmentDemand(full_demand, influence_percent, enabled);
+}
+
+/** Calculate industrial development demand without generating or locating industries. */
+uint16_t CalculateIndustrialDevelopmentDemand(TownDevelopmentMass mass, LandValueScore score, uint8_t influence_percent, bool enabled)
+{
+	static constexpr std::array<uint16_t, 7> CURVE = {8500, 12500, 13500, 11000, 7500, 4000, 2000};
+	const uint16_t full_demand = ApplyTownDevelopmentMass(GetTownDevelopmentCurveValue(score, CURVE), mass);
+	return ScaleTownDevelopmentDemand(full_demand, influence_percent, enabled);
+}
+
+/** Combine component demands using the frozen residential/commercial/industrial 5:3:2 weights. */
+uint16_t CalculateOverallDevelopmentDemand(uint16_t residential, uint16_t commercial, uint16_t industrial, bool enabled)
+{
+	if (!enabled) return TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+	const uint64_t weighted = static_cast<uint64_t>(std::min<uint16_t>(residential, TOWN_DEVELOPMENT_DEMAND_MAX)) * 5 +
+			static_cast<uint64_t>(std::min<uint16_t>(commercial, TOWN_DEVELOPMENT_DEMAND_MAX)) * 3 +
+			static_cast<uint64_t>(std::min<uint16_t>(industrial, TOWN_DEVELOPMENT_DEMAND_MAX)) * 2;
+	return static_cast<uint16_t>(weighted / 10);
+}
+
+/** Calculate the complete authoritative derived demand cache for one town. */
+TownDevelopmentDemandCache CalculateTownDevelopmentDemand(uint32_t population, uint32_t num_houses, bool larger_town,
+		LandValueScore score, uint8_t influence_percent, bool enabled)
+{
+	TownDevelopmentDemandCache result{};
+	result.mass = CalculateTownDevelopmentMass(population, num_houses, larger_town);
+	result.active = enabled && influence_percent != 0;
+	result.affordability = CalculateLandAffordability(score, influence_percent, enabled);
+	result.residential_demand = CalculateResidentialDevelopmentDemand(result.mass, score, influence_percent, enabled);
+	result.commercial_demand = CalculateCommercialDevelopmentDemand(result.mass, score, influence_percent, enabled);
+	result.industrial_demand = CalculateIndustrialDevelopmentDemand(result.mass, score, influence_percent, enabled);
+	result.overall_demand = CalculateOverallDevelopmentDemand(result.residential_demand, result.commercial_demand,
+			result.industrial_demand, enabled);
+	return result;
+}
+
+/** Map a demand index to a display-only level. */
+TownDevelopmentDemandLevel GetTownDevelopmentDemandLevel(uint16_t demand)
+{
+	const uint16_t value = std::min<uint16_t>(demand, TOWN_DEVELOPMENT_DEMAND_MAX);
+	if (value < 5000) return TownDevelopmentDemandLevel::VeryWeak;
+	if (value < 8000) return TownDevelopmentDemandLevel::Weak;
+	if (value < 12000) return TownDevelopmentDemandLevel::Average;
+	if (value < 16000) return TownDevelopmentDemandLevel::Strong;
+	return TownDevelopmentDemandLevel::VeryStrong;
+}
+
+/** Return an O(1), read-only copy of a town's demand cache with safe neutral disabled semantics. */
+TownDevelopmentDemandCache GetTownDevelopmentDemand(const Town *town)
+{
+	if (town == nullptr) return {};
+	TownDevelopmentDemandCache result = town->cache.development_demand;
+	if (!IsLandValueEnabled() || _settings_game.economy.land_value_growth_percent == 0) {
+		result.active = false;
+		result.overall_demand = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+		result.residential_demand = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+		result.commercial_demand = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+		result.industrial_demand = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+		result.affordability = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+	}
+	return result;
+}
+
+/** Rebuild one town's NOSAVE development-demand cache without changing persistent state. */
+void RebuildTownDevelopmentDemandCache(Town *town)
+{
+	assert(town != nullptr);
+	town->cache.development_demand = CalculateTownDevelopmentDemand(town->cache.population, town->cache.num_houses,
+			town->larger_town, ClampLandValueScore(town->land_value_score),
+			_settings_game.economy.land_value_growth_percent, IsLandValueEnabled());
+}
+
 /** Calculate a non-negative, saturating land-purchase surcharge using fixed-point integer arithmetic. */
 Money CalculateLandPurchaseSurcharge(Money base_land_unit, LandValueScore final_score, uint16_t purchase_percent, bool enabled)
 {
@@ -453,6 +592,7 @@ void RebuildLandValueCache(Town *town)
 	cache.distance_score = BuildLandValueDistanceScores(cache.center_score);
 	cache.max_distance_squared = CalculateLandValueMaxDistanceSquared(
 			town_radius_squared, _settings_game.economy.land_value_distance_scale);
+	RebuildTownDevelopmentDemandCache(town);
 }
 
 /** Assign deterministic one-based ranks by descending score and ascending TownID. */
@@ -482,7 +622,12 @@ void RebuildAllLandValueCaches()
 /** Update persistent scores once per economy month, then rebuild derived caches and ranks. */
 void LandValueMonthlyLoop()
 {
-	if (!IsLandValueEnabled()) return;
+	if (!IsLandValueEnabled()) {
+		RebuildAllLandValueCaches();
+		InvalidateWindowClassesData(WindowClass::LandInfo);
+		InvalidateWindowClassesData(WindowClass::TownView);
+		return;
+	}
 
 	for (Town *town : Town::Iterate()) {
 		const LandValueScore old_score = ClampLandValueScore(town->land_value_score);

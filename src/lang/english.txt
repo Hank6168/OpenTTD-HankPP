@@ -2231,8 +2231,8 @@ STR_CONFIG_SETTING_LAND_VALUE_PURCHASE_PERCENT                  :Land purchase p
 STR_CONFIG_SETTING_LAND_VALUE_PURCHASE_PERCENT_HELPTEXT         :Reserved land-value percentage for land purchase costs. This setting is saved but does not affect costs in this version
 STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT            :Infrastructure percentage: {STRING2}
 STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT_HELPTEXT   :Reserved land-value percentage for infrastructure construction costs. This setting is saved but does not affect costs in this version
-STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT                    :Town growth percentage: {STRING2}
-STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT_HELPTEXT           :Reserved land-value influence on town growth. This setting is saved but does not affect town growth in this version
+STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT                    :Land-value influence on town development demand: {STRING2}
+STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT_HELPTEXT           :Controls how strongly land value changes derived residential, commercial, industrial and affordability demand indices. 0% keeps all indices neutral; the default applies a mild influence. This does not guarantee town growth. Actual house and industry effects are reserved for later patches
 STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT                   :House density percentage: {STRING2}
 STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT_HELPTEXT          :Reserved land-value influence on house density. This setting is saved but does not affect house selection in this version
 
@@ -3221,6 +3221,11 @@ STR_LAND_VALUE_LEVEL_ABOVE_AVERAGE                              :Above average
 STR_LAND_VALUE_LEVEL_HIGH                                       :High
 STR_LAND_VALUE_LEVEL_VERY_HIGH                                  :Very high
 STR_LAND_VALUE_LEVEL_CORE                                       :Core area
+STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_VERY_WEAK                     :Very weak
+STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_WEAK                          :Weak
+STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_AVERAGE                       :Average
+STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_STRONG                        :Strong
+STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_VERY_STRONG                   :Very strong
 STR_LAND_AREA_INFORMATION_LAND_VALUE_STATUS                     :{BLACK}Land value system: {LTBLUE}{STRING}
 STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN                       :{BLACK}Nearest land value town: {LTBLUE}{STRING1}
 STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN_NONE                  :{BLACK}Nearest land value town: {LTBLUE}None
@@ -3806,6 +3811,11 @@ STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_NEGATIVE                :{BLACK}Monthly 
 STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_ZERO                    :{BLACK}Monthly land value change: {ORANGE}0
 STR_TOWN_VIEW_LAND_VALUE_CENTER_SCORE                           :{BLACK}Land value centre score: {ORANGE}{NUM}
 STR_TOWN_VIEW_LAND_VALUE_INFLUENCE_RADIUS                       :{BLACK}Land value influence radius: {ORANGE}about {NUM} tiles
+STR_TOWN_VIEW_OVERALL_DEVELOPMENT_DEMAND                        :{BLACK}Overall development demand: {ORANGE}{STRING} ({NUM}.{NUM}%)
+STR_TOWN_VIEW_RESIDENTIAL_DEVELOPMENT_DEMAND                    :{BLACK}Residential demand: {ORANGE}{STRING} ({NUM}.{NUM}%)
+STR_TOWN_VIEW_COMMERCIAL_DEVELOPMENT_DEMAND                     :{BLACK}Commercial demand: {ORANGE}{STRING} ({NUM}.{NUM}%)
+STR_TOWN_VIEW_INDUSTRIAL_DEVELOPMENT_DEMAND                     :{BLACK}Industrial demand: {ORANGE}{STRING} ({NUM}.{NUM}%)
+STR_TOWN_VIEW_LAND_AFFORDABILITY                                :{BLACK}Land affordability: {ORANGE}{STRING} ({NUM}.{NUM}%)
 STR_TOWN_VIEW_CARGO_LAST_MONTH_MAX                              :{BLACK}{CARGO_LIST} last month: {ORANGE}{COMMA}{BLACK}  max: {ORANGE}{COMMA}
 STR_TOWN_VIEW_CARGO_LAST_MINUTE_MAX                             :{BLACK}{CARGO_LIST} last minute: {ORANGE}{COMMA}{BLACK}  max: {ORANGE}{COMMA}
 STR_TOWN_VIEW_CARGO_FOR_TOWNGROWTH                              :{BLACK}Cargo needed for town growth:

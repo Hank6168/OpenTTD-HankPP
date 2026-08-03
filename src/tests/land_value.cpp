@@ -82,7 +82,7 @@ TEST_CASE("Land value game settings use Patch PATX persistence and network synch
 		{ "economy.land_value_distance_scale", 100, 25, 400, true },
 		{ "economy.land_value_purchase_percent", 100, 0, 400, false },
 		{ "economy.land_value_infrastructure_percent", 25, 0, 400, false },
-		{ "economy.land_value_growth_percent", 20, 0, 100, false },
+		{ "economy.land_value_growth_percent", 20, 0, 100, true },
 		{ "economy.land_value_density_percent", 50, 0, 200, false },
 	};
 
@@ -842,6 +842,231 @@ TEST_CASE("Land value scores survive cache reconstruction after two economy mont
 	CHECK(city->cache.land_value.center_score == LandValueScore{saved_city_score});
 	CHECK(city->cache.land_value.rank == 1);
 	CHECK(town->cache.land_value.rank == 2);
+
+	_town_pool.CleanPool();
+	RebuildTownKdtree();
+}
+
+TEST_CASE("Town development demand curves use frozen boundaries and influence scaling")
+{
+	static constexpr std::array<uint32_t, 15> SCORES = {
+		0, 149, 150, 299, 300, 599, 600, 1199, 1200, 2499, 2500, 4999, 5000, 10000, 10001,
+	};
+	static constexpr std::array<uint16_t, 15> AFFORDABILITY = {
+		10500, 10500, 12500, 12500, 14000, 14000, 12000, 12000, 9000, 9000, 6500, 6500, 4000, 4000, 4000,
+	};
+	static constexpr std::array<uint16_t, 15> RESIDENTIAL = {
+		8500, 8500, 11500, 11500, 13000, 13000, 12000, 12000, 10000, 10000, 8000, 8000, 6500, 6500, 6500,
+	};
+	static constexpr std::array<uint16_t, 15> COMMERCIAL = {
+		6000, 6000, 7500, 7500, 9500, 9500, 11500, 11500, 13500, 13500, 15000, 15000, 15000, 15000, 15000,
+	};
+	static constexpr std::array<uint16_t, 15> INDUSTRIAL = {
+		8500, 8500, 12500, 12500, 13500, 13500, 11000, 11000, 7500, 7500, 4000, 4000, 2000, 2000, 2000,
+	};
+	static constexpr TownDevelopmentMass NEUTRAL_MASS{10000};
+
+	for (size_t i = 0; i < SCORES.size(); ++i) {
+		const LandValueScore score{SCORES[i]};
+		CHECK(CalculateLandAffordability(score, 100) == AFFORDABILITY[i]);
+		CHECK(CalculateResidentialDevelopmentDemand(NEUTRAL_MASS, score, 100) == RESIDENTIAL[i]);
+		CHECK(CalculateCommercialDevelopmentDemand(NEUTRAL_MASS, score, 100) == COMMERCIAL[i]);
+		CHECK(CalculateIndustrialDevelopmentDemand(NEUTRAL_MASS, score, 100) == INDUSTRIAL[i]);
+	}
+
+	CHECK(CalculateLandAffordability(LandValueScore{500}, 0) == 10000);
+	CHECK(CalculateLandAffordability(LandValueScore{500}, 20) == 10800);
+	CHECK(CalculateLandAffordability(LandValueScore{500}, 50) == 12000);
+	CHECK(CalculateResidentialDevelopmentDemand(NEUTRAL_MASS, LandValueScore{500}, 20) == 10600);
+	CHECK(CalculateCommercialDevelopmentDemand(NEUTRAL_MASS, LandValueScore{500}, 20) == 9900);
+	CHECK(CalculateIndustrialDevelopmentDemand(NEUTRAL_MASS, LandValueScore{500}, 20) == 10700);
+	CHECK(CalculateLandAffordability(LandValueScore{500}, 100, false) == 10000);
+	CHECK(CalculateResidentialDevelopmentDemand(NEUTRAL_MASS, LandValueScore{500}, 100, false) == 10000);
+	CHECK(CalculateCommercialDevelopmentDemand(NEUTRAL_MASS, LandValueScore{500}, 100, false) == 10000);
+	CHECK(CalculateIndustrialDevelopmentDemand(NEUTRAL_MASS, LandValueScore{500}, 100, false) == 10000);
+}
+
+TEST_CASE("Town development demand is bounded deterministic and scales deviations monotonically")
+{
+	const TownDevelopmentMass mass{17321};
+	for (uint32_t score = 0; score <= LAND_VALUE_MAX.base(); ++score) {
+		const auto first = CalculateTownDevelopmentDemand(50000, 6000, true, LandValueScore{score}, 20, true);
+		const auto second = CalculateTownDevelopmentDemand(50000, 6000, true, LandValueScore{score}, 20, true);
+		CHECK(first.overall_demand == second.overall_demand);
+		CHECK(first.affordability <= TOWN_DEVELOPMENT_DEMAND_MAX);
+		CHECK(first.residential_demand <= TOWN_DEVELOPMENT_DEMAND_MAX);
+		CHECK(first.commercial_demand <= TOWN_DEVELOPMENT_DEMAND_MAX);
+		CHECK(first.industrial_demand <= TOWN_DEVELOPMENT_DEMAND_MAX);
+		CHECK(first.overall_demand <= TOWN_DEVELOPMENT_DEMAND_MAX);
+	}
+
+	for (LandValueScore score : {LandValueScore{0}, LandValueScore{100}, LandValueScore{500}, LandValueScore{2000}, LandValueScore{5000}, LAND_VALUE_MAX}) {
+		int32_t previous_residential_deviation = 0;
+		int32_t previous_commercial_deviation = 0;
+		int32_t previous_industrial_deviation = 0;
+		for (uint8_t influence = 0; influence <= 100; influence += 5) {
+			const uint16_t residential = CalculateResidentialDevelopmentDemand(mass, score, influence);
+			const uint16_t commercial = CalculateCommercialDevelopmentDemand(mass, score, influence);
+			const uint16_t industrial = CalculateIndustrialDevelopmentDemand(mass, score, influence);
+			const int32_t residential_deviation = std::abs(static_cast<int32_t>(residential) - 10000);
+			const int32_t commercial_deviation = std::abs(static_cast<int32_t>(commercial) - 10000);
+			const int32_t industrial_deviation = std::abs(static_cast<int32_t>(industrial) - 10000);
+			CHECK(residential_deviation >= previous_residential_deviation);
+			CHECK(commercial_deviation >= previous_commercial_deviation);
+			CHECK(industrial_deviation >= previous_industrial_deviation);
+			previous_residential_deviation = residential_deviation;
+			previous_commercial_deviation = commercial_deviation;
+			previous_industrial_deviation = industrial_deviation;
+		}
+	}
+}
+
+TEST_CASE("Town development mass is monotonic sub-linear bounded and city-aware")
+{
+	TownDevelopmentMass previous{0};
+	for (uint32_t population : {0U, 1U, 100U, 500U, 5000U, 50000U, 200000U, 1000000U, UINT32_MAX}) {
+		const TownDevelopmentMass current = CalculateTownDevelopmentMass(population, 0, false);
+		CHECK(current >= previous);
+		CHECK(current <= TOWN_DEVELOPMENT_MASS_MAX);
+		previous = current;
+	}
+
+	previous = TownDevelopmentMass{0};
+	for (uint32_t houses : {0U, 1U, 80U, 700U, 6000U, 20000U, 1000000U, UINT32_MAX}) {
+		const TownDevelopmentMass current = CalculateTownDevelopmentMass(0, houses, false);
+		CHECK(current >= previous);
+		CHECK(current <= TOWN_DEVELOPMENT_MASS_MAX);
+		previous = current;
+	}
+
+	const TownDevelopmentMass small = CalculateTownDevelopmentMass(500, 80, false);
+	const TownDevelopmentMass medium = CalculateTownDevelopmentMass(5000, 700, false);
+	const TownDevelopmentMass large = CalculateTownDevelopmentMass(50000, 6000, true);
+	const TownDevelopmentMass very_large = CalculateTownDevelopmentMass(200000, 20000, true);
+	CHECK(small < medium);
+	CHECK(medium < large);
+	CHECK(large < very_large);
+	CHECK(very_large == TOWN_DEVELOPMENT_MASS_MAX);
+	CHECK(CalculateTownDevelopmentMass(5000, 700, true).base() == medium.base() + 1000);
+	CHECK(CalculateTownDevelopmentMass(UINT32_MAX, UINT32_MAX, true) == TOWN_DEVELOPMENT_MASS_MAX);
+
+	const uint32_t first_population_increment = CalculateTownDevelopmentMass(250000, 0, false).base();
+	const uint32_t second_population_increment = CalculateTownDevelopmentMass(1000000, 0, false).base() - first_population_increment;
+	CHECK(second_population_increment <= first_population_increment);
+}
+
+TEST_CASE("Town scale and land value produce distinct residential commercial and industrial demand")
+{
+	const TownDevelopmentMass small = CalculateTownDevelopmentMass(500, 80, false);
+	const TownDevelopmentMass large = CalculateTownDevelopmentMass(50000, 6000, true);
+
+	CHECK(CalculateResidentialDevelopmentDemand(small, LandValueScore{100}, 100) <
+			CalculateResidentialDevelopmentDemand(small, LandValueScore{250}, 100));
+	CHECK(CalculateResidentialDevelopmentDemand(large, LandValueScore{250}, 100) >
+			CalculateResidentialDevelopmentDemand(small, LandValueScore{250}, 100));
+	CHECK(CalculateResidentialDevelopmentDemand(large, LandValueScore{500}, 100) >
+			CalculateResidentialDevelopmentDemand(large, LandValueScore{5000}, 100));
+
+	CHECK(CalculateCommercialDevelopmentDemand(large, LandValueScore{2500}, 100) >
+			CalculateCommercialDevelopmentDemand(small, LandValueScore{2500}, 100));
+	CHECK(CalculateCommercialDevelopmentDemand(large, LandValueScore{2500}, 100) ==
+			CalculateCommercialDevelopmentDemand(large, LandValueScore{5000}, 100));
+	CHECK(CalculateCommercialDevelopmentDemand(small, LandValueScore{5000}, 100) < TOWN_DEVELOPMENT_DEMAND_MAX);
+
+	CHECK(CalculateIndustrialDevelopmentDemand(small, LandValueScore{100}, 100) <
+			CalculateIndustrialDevelopmentDemand(small, LandValueScore{500}, 100));
+	CHECK(CalculateIndustrialDevelopmentDemand(large, LandValueScore{250}, 100) >
+			CalculateIndustrialDevelopmentDemand(small, LandValueScore{250}, 100));
+	CHECK(CalculateIndustrialDevelopmentDemand(large, LandValueScore{500}, 100) >
+			CalculateIndustrialDevelopmentDemand(large, LandValueScore{5000}, 100));
+	CHECK(CalculateIndustrialDevelopmentDemand(large, LandValueScore{5000}, 100) < 8000);
+}
+
+TEST_CASE("Overall town development demand uses bounded five-three-two weights")
+{
+	CHECK(CalculateOverallDevelopmentDemand(10000, 10000, 10000) == 10000);
+	CHECK(CalculateOverallDevelopmentDemand(12000, 15000, 4000) == 11300);
+	CHECK(CalculateOverallDevelopmentDemand(20000, 20000, 20000) == 20000);
+	CHECK(CalculateOverallDevelopmentDemand(UINT16_MAX, UINT16_MAX, UINT16_MAX) == 20000);
+	CHECK(CalculateOverallDevelopmentDemand(12000, 15000, 4000, false) == 10000);
+
+	const TownDevelopmentDemandCache disabled = CalculateTownDevelopmentDemand(50000, 6000, true, LandValueScore{2500}, 100, false);
+	CHECK_FALSE(disabled.active);
+	CHECK(disabled.affordability == 10000);
+	CHECK(disabled.residential_demand == 10000);
+	CHECK(disabled.commercial_demand == 10000);
+	CHECK(disabled.industrial_demand == 10000);
+	CHECK(disabled.overall_demand == 10000);
+
+	const TownDevelopmentDemandCache zero = CalculateTownDevelopmentDemand(50000, 6000, true, LandValueScore{2500}, 0, true);
+	CHECK_FALSE(zero.active);
+	CHECK(zero.affordability == 10000);
+	CHECK(zero.residential_demand == 10000);
+	CHECK(zero.commercial_demand == 10000);
+	CHECK(zero.industrial_demand == 10000);
+	CHECK(zero.overall_demand == 10000);
+}
+
+TEST_CASE("Town development demand cache rebuilds without changing growth houses or industries")
+{
+	ResetLandValueTestWorld();
+	Town *town = CreateLandValueTestTown(10, 10);
+	town->cache.population = 50000;
+	town->cache.num_houses = 6000;
+	town->larger_town = true;
+	town->land_value_score = 500;
+	town->growth_rate = 123;
+	town->grow_counter = 45;
+	const uint32_t houses_before = town->cache.num_houses;
+	const size_t industries_before = Industry::GetNumItems();
+
+	RebuildLandValueCache(town);
+	const TownDevelopmentDemandCache expected = CalculateTownDevelopmentDemand(50000, 6000, true, LandValueScore{500}, 20, true);
+	CHECK(town->cache.development_demand.mass == expected.mass);
+	CHECK(town->cache.development_demand.overall_demand == expected.overall_demand);
+	CHECK(GetTownDevelopmentDemand(town).residential_demand == expected.residential_demand);
+	CHECK(town->growth_rate == 123);
+	CHECK(town->grow_counter == 45);
+	CHECK(town->cache.num_houses == houses_before);
+	CHECK(Industry::GetNumItems() == industries_before);
+
+	const IntSettingDesc *influence_setting = GetSettingFromName("economy.land_value_growth_percent")->AsIntSetting();
+	REQUIRE(influence_setting->post_callback != nullptr);
+	const uint32_t score_before_setting = town->land_value_score;
+	_settings_game.economy.land_value_growth_percent = 0;
+	influence_setting->post_callback(0);
+	CHECK(GetTownDevelopmentDemand(town).overall_demand == 10000);
+	CHECK(town->land_value_score == score_before_setting);
+	_settings_game.economy.land_value_growth_percent = 100;
+	influence_setting->post_callback(100);
+	CHECK(GetTownDevelopmentDemand(town).active);
+	CHECK(GetTownDevelopmentDemand(town).overall_demand != 10000);
+	CHECK(town->land_value_score == score_before_setting);
+
+	const uint16_t growth_rate_before_month = town->growth_rate;
+	const uint16_t grow_counter_before_month = town->grow_counter;
+	const uint16_t demand_before_month = GetTownDevelopmentDemand(town).overall_demand;
+	_settings_game.economy.land_value_smoothing_percent = 100;
+	LandValueMonthlyLoop();
+	CHECK(GetTownDevelopmentDemand(town).overall_demand != demand_before_month);
+	CHECK(town->growth_rate == growth_rate_before_month);
+	CHECK(town->grow_counter == grow_counter_before_month);
+	CHECK(town->cache.num_houses == houses_before);
+	CHECK(Industry::GetNumItems() == industries_before);
+
+	const TownDevelopmentDemandCache rebuilt = town->cache.development_demand;
+	town->cache.development_demand = {};
+	InitializeLoadedTownLandValues(true);
+	CHECK(town->cache.development_demand.mass == rebuilt.mass);
+	CHECK(town->cache.development_demand.overall_demand == rebuilt.overall_demand);
+
+	const uint32_t score_before_disable = town->land_value_score;
+	_settings_game.economy.land_value_enabled = false;
+	LandValueMonthlyLoop();
+	CHECK(GetTownDevelopmentDemand(town).overall_demand == 10000);
+	CHECK(GetTownDevelopmentDemand(town).affordability == 10000);
+	CHECK(town->land_value_score == score_before_disable);
+	CHECK(GetTownDevelopmentDemand(nullptr).overall_demand == 10000);
 
 	_town_pool.CleanPool();
 	RebuildTownKdtree();

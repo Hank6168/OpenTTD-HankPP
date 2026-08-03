@@ -2220,8 +2220,8 @@ STR_CONFIG_SETTING_LAND_VALUE_PURCHASE_PERCENT                  :购地地价比
 STR_CONFIG_SETTING_LAND_VALUE_PURCHASE_PERCENT_HELPTEXT         :为购地费用预留的地价比例。本版本仅保存该设置，不影响实际费用
 STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT            :基础设施地价比例：{STRING}
 STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT_HELPTEXT   :为基础设施建造费用预留的地价比例。本版本仅保存该设置，不影响实际费用
-STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT                    :城镇发展地价比例：{STRING}
-STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT_HELPTEXT           :为地价影响城镇发展预留的比例。本版本仅保存该设置，不影响城镇发展
+STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT                    :地价对城市发展需求的影响：{STRING}
+STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT_HELPTEXT           :控制地价对住宅、商业、工业和土地可负担性等派生需求指数的影响强度。0%时所有指数保持中性；默认值仅施加温和影响。本设置不直接保证城镇增长，房屋和产业的实际应用留待后续补丁
 STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT                   :房屋密度地价比例：{STRING}
 STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT_HELPTEXT          :为地价影响房屋密度预留的比例。本版本仅保存该设置，不影响房屋选择
 
@@ -3208,6 +3208,11 @@ STR_LAND_VALUE_LEVEL_ABOVE_AVERAGE                              :较高
 STR_LAND_VALUE_LEVEL_HIGH                                       :高
 STR_LAND_VALUE_LEVEL_VERY_HIGH                                  :很高
 STR_LAND_VALUE_LEVEL_CORE                                       :核心区
+STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_VERY_WEAK                     :很弱
+STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_WEAK                          :较弱
+STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_AVERAGE                       :中等
+STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_STRONG                        :较强
+STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_VERY_STRONG                   :很强
 STR_LAND_AREA_INFORMATION_LAND_VALUE_STATUS                     :{BLACK}地价系统：{LTBLUE}{STRING}
 STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN                       :{BLACK}最近的地价城镇：{LTBLUE}{STRING}
 STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN_NONE                  :{BLACK}最近的地价城镇：{LTBLUE}没有
@@ -3793,6 +3798,11 @@ STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_NEGATIVE                :{BLACK}地价�
 STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_ZERO                    :{BLACK}地价月度变化：{ORANGE}0
 STR_TOWN_VIEW_LAND_VALUE_CENTER_SCORE                           :{BLACK}中心地价分数：{ORANGE}{NUM}
 STR_TOWN_VIEW_LAND_VALUE_INFLUENCE_RADIUS                       :{BLACK}地价影响半径：{ORANGE}约 {NUM} 格
+STR_TOWN_VIEW_OVERALL_DEVELOPMENT_DEMAND                        :{BLACK}城市发展需求：{ORANGE}{STRING}（{NUM}.{NUM}%）
+STR_TOWN_VIEW_RESIDENTIAL_DEVELOPMENT_DEMAND                    :{BLACK}住宅需求：{ORANGE}{STRING}（{NUM}.{NUM}%）
+STR_TOWN_VIEW_COMMERCIAL_DEVELOPMENT_DEMAND                     :{BLACK}商业需求：{ORANGE}{STRING}（{NUM}.{NUM}%）
+STR_TOWN_VIEW_INDUSTRIAL_DEVELOPMENT_DEMAND                     :{BLACK}工业需求：{ORANGE}{STRING}（{NUM}.{NUM}%）
+STR_TOWN_VIEW_LAND_AFFORDABILITY                                :{BLACK}土地可负担性：{ORANGE}{STRING}（{NUM}.{NUM}%）
 STR_TOWN_VIEW_CARGO_LAST_MONTH_MAX                              :{BLACK}上月产出的{CARGO_LIST}：{ORANGE}{COMMA}{BLACK}　最大产量：{ORANGE}{COMMA}
 STR_TOWN_VIEW_CARGO_LAST_MINUTE_MAX                             :{BLACK}上分钟产出的{CARGO_LIST}：{ORANGE}{COMMA}{BLACK}　最大产量：{ORANGE}{COMMA}
 STR_TOWN_VIEW_CARGO_FOR_TOWNGROWTH                              :{BLACK}城镇发展所必需的货物：

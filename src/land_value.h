@@ -73,6 +73,27 @@ LandValueScore GetLandValueScore(TileIndex tile);
 LandValueModifier GetLandValueModifier(TileIndex tile);
 LandValueScore GetFinalLandValueScore(TileIndex tile);
 
+/** Player-facing classification of a development-demand index. Display-only. */
+enum class TownDevelopmentDemandLevel : uint8_t {
+	VeryWeak,
+	Weak,
+	Average,
+	Strong,
+	VeryStrong,
+};
+
+TownDevelopmentMass CalculateTownDevelopmentMass(uint32_t population, uint32_t num_houses, bool larger_town);
+uint16_t CalculateLandAffordability(LandValueScore score, uint8_t influence_percent, bool enabled = true);
+uint16_t CalculateResidentialDevelopmentDemand(TownDevelopmentMass mass, LandValueScore score, uint8_t influence_percent, bool enabled = true);
+uint16_t CalculateCommercialDevelopmentDemand(TownDevelopmentMass mass, LandValueScore score, uint8_t influence_percent, bool enabled = true);
+uint16_t CalculateIndustrialDevelopmentDemand(TownDevelopmentMass mass, LandValueScore score, uint8_t influence_percent, bool enabled = true);
+uint16_t CalculateOverallDevelopmentDemand(uint16_t residential, uint16_t commercial, uint16_t industrial, bool enabled = true);
+TownDevelopmentDemandCache CalculateTownDevelopmentDemand(uint32_t population, uint32_t num_houses, bool larger_town,
+		LandValueScore score, uint8_t influence_percent, bool enabled = true);
+TownDevelopmentDemandLevel GetTownDevelopmentDemandLevel(uint16_t demand);
+TownDevelopmentDemandCache GetTownDevelopmentDemand(const Town *town);
+void RebuildTownDevelopmentDemandCache(Town *town);
+
 /** Reason why a land-purchase surcharge is not applied. */
 enum class LandPurchaseCostStatus : uint8_t {
 	Chargeable,

@@ -67,6 +67,7 @@ struct TownCache {
 	uint32_t num_houses = 0;                                          ///< Amount of houses
 	uint32_t population = 0;                                          ///< Current population of people
 	LandValueCache land_value{};                                      ///< Derived in-memory land-value data
+	TownDevelopmentDemandCache development_demand{};                  ///< Derived in-memory town development demand
 	TrackedViewportSign sign{};                                       ///< Location of name sign, UpdateVirtCoord updates this
 	PartsOfSubsidy part_of_subsidy{};                                 ///< Is this town a source/destination of a subsidy?
 	std::array<uint32_t, NUM_HOUSE_ZONES> squared_town_zone_radius{}; ///< UpdateTownRadius updates this given the house count

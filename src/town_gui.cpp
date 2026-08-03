@@ -554,6 +554,18 @@ static void ShowTownAuthorityWindow(uint town)
 
 
 /** Town view window. */
+static StringID GetTownDevelopmentDemandLevelString(TownDevelopmentDemandLevel level)
+{
+	switch (level) {
+		case TownDevelopmentDemandLevel::VeryWeak:   return STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_VERY_WEAK;
+		case TownDevelopmentDemandLevel::Weak:       return STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_WEAK;
+		case TownDevelopmentDemandLevel::Average:    return STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_AVERAGE;
+		case TownDevelopmentDemandLevel::Strong:     return STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_STRONG;
+		case TownDevelopmentDemandLevel::VeryStrong: return STR_TOWN_DEVELOPMENT_DEMAND_LEVEL_VERY_STRONG;
+	}
+	NOT_REACHED();
+}
+
 struct TownViewWindow : Window {
 private:
 	Town *town = nullptr; ///< Town displayed by the window.
@@ -637,6 +649,18 @@ public:
 		DrawString(tr, GetString(STR_TOWN_VIEW_LAND_VALUE_INFLUENCE_RADIUS,
 				CalculateLandValueInfluenceRadius(land_value.max_distance_squared)));
 		tr.top += GetCharacterHeight(FontSize::Normal);
+
+		const TownDevelopmentDemandCache development = GetTownDevelopmentDemand(this->town);
+		auto draw_development_demand = [&](StringID string, uint16_t value) {
+			DrawString(tr, GetString(string, GetTownDevelopmentDemandLevelString(GetTownDevelopmentDemandLevel(value)),
+					value / 100, (value / 10) % 10));
+			tr.top += GetCharacterHeight(FontSize::Normal);
+		};
+		draw_development_demand(STR_TOWN_VIEW_OVERALL_DEVELOPMENT_DEMAND, development.overall_demand);
+		draw_development_demand(STR_TOWN_VIEW_RESIDENTIAL_DEVELOPMENT_DEMAND, development.residential_demand);
+		draw_development_demand(STR_TOWN_VIEW_COMMERCIAL_DEVELOPMENT_DEMAND, development.commercial_demand);
+		draw_development_demand(STR_TOWN_VIEW_INDUSTRIAL_DEVELOPMENT_DEMAND, development.industrial_demand);
+		draw_development_demand(STR_TOWN_VIEW_LAND_AFFORDABILITY, development.affordability);
 
 		StringID str_last_period;
 		if (EconTime::UsingWallclockUnits()) {
@@ -784,7 +808,7 @@ public:
 	 */
 	uint GetDesiredInfoHeight(int width) const
 	{
-		uint aimed_height = static_cast<uint>(8 + CountBits(CargoSpec::town_production_cargo_mask[TownProductionEffect::Passengers] | CargoSpec::town_production_cargo_mask[TownProductionEffect::Mail])) * GetCharacterHeight(FontSize::Normal);
+		uint aimed_height = static_cast<uint>(13 + CountBits(CargoSpec::town_production_cargo_mask[TownProductionEffect::Passengers] | CargoSpec::town_production_cargo_mask[TownProductionEffect::Mail])) * GetCharacterHeight(FontSize::Normal);
 
 		bool first = true;
 		for (TownAcceptanceEffect i = TownAcceptanceEffect::Begin; i < TownAcceptanceEffect::End; i++) {

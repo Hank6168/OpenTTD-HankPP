@@ -3681,6 +3681,7 @@ static bool ConDumpLandValue(std::span<std::string_view> argv)
 	IConsolePrint(CC_DEFAULT, "distance_scale: {}", _settings_game.economy.land_value_distance_scale);
 
 	const Town *town = Town::GetIfValid(result.town_id);
+	LandUseDevelopmentContext land_use{};
 	if (town == nullptr) {
 		IConsolePrint(CC_DEFAULT, "Nearest TownID: none");
 		IConsolePrint(CC_DEFAULT, "Nearest town name: none");
@@ -3697,6 +3698,8 @@ static bool ConDumpLandValue(std::span<std::string_view> argv)
 		IConsolePrint(CC_DEFAULT, "industrial_demand: {}", development.industrial_demand);
 		IConsolePrint(CC_DEFAULT, "overall_demand: {}", development.overall_demand);
 		IConsolePrint(CC_DEFAULT, "town development demand status: {}", development.active ? "active" : "neutral");
+		const HouseZone zone = GetTownRadiusGroup(town, *tile);
+		land_use = GetLandUseDevelopmentContext(town, *tile, to_underlying(zone));
 	}
 
 	IConsolePrint(CC_DEFAULT, "Town persistent score: {}", result.town_score.base());
@@ -3709,6 +3712,25 @@ static bool ConDumpLandValue(std::span<std::string_view> argv)
 	IConsolePrint(CC_DEFAULT, "final score: {}", result.final_score.base());
 	IConsolePrint(CC_DEFAULT, "rank: {}", result.rank);
 	IConsolePrint(CC_DEFAULT, "monthly_change: {}", result.monthly_change);
+	IConsolePrint(CC_DEFAULT, "land_use tile_final_score: {}", land_use.final_score.base());
+	IConsolePrint(CC_DEFAULT, "land_use town_zone: {}", land_use.town_zone);
+	IConsolePrint(CC_DEFAULT, "land_use town_mass: {}", land_use.town_mass.base());
+	IConsolePrint(CC_DEFAULT, "land_use residential_demand: {}", land_use.residential_demand);
+	IConsolePrint(CC_DEFAULT, "land_use commercial_demand: {}", land_use.commercial_demand);
+	IConsolePrint(CC_DEFAULT, "land_use affordability: {}", land_use.affordability);
+	IConsolePrint(CC_DEFAULT, "land_use density_percent: {}", land_use.density_influence_percent);
+	IConsolePrint(CC_DEFAULT, "land_use full_density_factor: {}", CalculateHouseDensityDemand(land_use, false));
+	IConsolePrint(CC_DEFAULT, "land_use scaled_density_factor: {}", CalculateHouseDensityDemand(land_use));
+	static constexpr HouseLandUseProfile low_density_profile = {
+		12, 1, 0, HouseDensityClass::Low, true, true, false, false,
+	};
+	static constexpr HouseLandUseProfile high_density_profile = {
+		100, 1, 3, HouseDensityClass::VeryHigh, true, false, false, false,
+	};
+	IConsolePrint(CC_DEFAULT, "land_use low_density_weight_modifier: {}", CalculateHouseLandUseWeightModifier(land_use, low_density_profile));
+	IConsolePrint(CC_DEFAULT, "land_use high_density_weight_modifier: {}", CalculateHouseLandUseWeightModifier(land_use, high_density_profile));
+	IConsolePrint(CC_DEFAULT, "land_use commercial_weight_modifier: deferred_patch_008_1");
+	IConsolePrint(CC_DEFAULT, "land_use status: {}", land_use.active ? "active" : "neutral");
 
 	const LandPurchaseCostBreakdown purchase = GetLandPurchaseCostBreakdown(*tile, 0);
 	IConsolePrint(CC_DEFAULT, "purchase_percent: {}", purchase.purchase_percent);

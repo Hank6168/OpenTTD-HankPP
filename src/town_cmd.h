@@ -31,6 +31,8 @@ struct HouseIDCmdVector {
 	void fmt_format_value(struct format_target &) const;
 };
 
+bool TryBuildTownHouse(Town *town, TileIndex tile, TownExpandModes modes);
+
 DEF_CMD_TUPLE   (Commands::FoundTown,                     CmdFoundTown,                    CMD_DEITY | CMD_NO_TEST, CommandType::LandscapeConstruction, CmdDataT<TownSize, bool, TownLayout, bool, uint32_t, std::string>) // founding random town can fail only in exec run
 DEF_CMD_TUPLE_NT(Commands::RenameTown,                    CmdRenameTown,                    CMD_DEITY | CMD_SERVER, CommandType::OtherManagement,       CmdDataT<TownID, std::string>)
 DEF_CMD_TUPLE_NT(Commands::RenameTownNonAdmin,            CmdRenameTownNonAdmin,                                {}, CommandType::OtherManagement,       CmdDataT<TownID, std::string>)

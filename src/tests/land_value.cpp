@@ -18,10 +18,12 @@
 #include "../company_func.h"
 #include "../economy_func.h"
 #include "../genworld.h"
+#include "../house.h"
 #include "../land_value.h"
 #include "../landscape_cmd.h"
 #include "../map_func.h"
 #include "../newgrf_object.h"
+#include "../newgrf_house.h"
 #include "../object_cmd.h"
 #include "../object_type.h"
 #include "../openttd.h"
@@ -31,7 +33,10 @@
 #include "../road.h"
 #include "../settings_internal.h"
 #include "../settings_type.h"
+#include "../scope.h"
 #include "../town.h"
+#include "../town_cmd.h"
+#include "../core/random_func.hpp"
 #include "../sl/extended_ver_sl.h"
 
 #include "../safeguards.h"
@@ -1070,4 +1075,205 @@ TEST_CASE("Town development demand cache rebuilds without changing growth houses
 
 	_town_pool.CleanPool();
 	RebuildTownKdtree();
+}
+
+TEST_CASE("House land-use profiles use bounded per-tile population proxies")
+{
+	ResetHouses();
+	CHECK(ClassifyHouseDensity(0) == HouseDensityClass::VeryLow);
+	CHECK(ClassifyHouseDensity(7) == HouseDensityClass::VeryLow);
+	CHECK(ClassifyHouseDensity(8) == HouseDensityClass::Low);
+	CHECK(ClassifyHouseDensity(19) == HouseDensityClass::Low);
+	CHECK(ClassifyHouseDensity(20) == HouseDensityClass::Medium);
+	CHECK(ClassifyHouseDensity(39) == HouseDensityClass::Medium);
+	CHECK(ClassifyHouseDensity(40) == HouseDensityClass::High);
+	CHECK(ClassifyHouseDensity(79) == HouseDensityClass::High);
+	CHECK(ClassifyHouseDensity(80) == HouseDensityClass::VeryHigh);
+	CHECK(ClassifyHouseDensity(UINT32_MAX) == HouseDensityClass::VeryHigh);
+
+	const HouseLandUseProfile multi = CalculateHouseLandUseProfile(250, 2, 3);
+	CHECK(multi.population_per_tile == 125);
+	CHECK(multi.tile_count == 2);
+	CHECK(multi.minimum_zone == 3);
+	CHECK(multi.density_class == HouseDensityClass::VeryHigh);
+	CHECK_FALSE(multi.residential_like);
+	CHECK_FALSE(multi.commercial_like);
+
+	const HouseLandUseProfile empty = CalculateHouseLandUseProfile(0, 0, 99);
+	CHECK(empty.tile_count == 1);
+	CHECK(empty.minimum_zone == 4);
+	CHECK(empty.special_building);
+	CHECK_FALSE(empty.residential_like);
+
+	const HouseLandUseProfile original_centre = GetHouseLandUseProfile(0);
+	CHECK(original_centre.valid);
+	CHECK(original_centre.population_per_tile == 187);
+	CHECK(original_centre.minimum_zone == 4);
+	CHECK(original_centre.density_class == HouseDensityClass::VeryHigh);
+	CHECK_FALSE(original_centre.commercial_like);
+
+	const HouseLandUseProfile original_multitile = GetHouseLandUseProfile(7);
+	CHECK(original_multitile.valid);
+	CHECK(original_multitile.tile_count == 2);
+	CHECK(original_multitile.population_per_tile == 70);
+	CHECK_FALSE(GetHouseLandUseProfile(INVALID_HOUSE_ID).valid);
+}
+
+TEST_CASE("House density demand follows score boundaries and caps small towns")
+{
+	LandUseDevelopmentContext context{};
+	context.active = true;
+	context.town_mass = TownDevelopmentMass{10000};
+	context.commercial_demand = 10000;
+	context.affordability = 10000;
+	context.density_influence_percent = 100;
+	context.town_zone = 2;
+
+	static constexpr std::array<uint32_t, 14> SCORES = {0, 149, 150, 299, 300, 599, 600, 1199, 1200, 2499, 2500, 4999, 5000, 10000};
+	static constexpr std::array<uint16_t, 14> EXPECTED = {7000, 7000, 8500, 8500, 10000, 10000, 11500, 11500, 13500, 13500, 15000, 15000, 16000, 16000};
+	for (size_t i = 0; i < SCORES.size(); ++i) {
+		context.final_score = LandValueScore{SCORES[i]};
+		CHECK(CalculateHouseDensityDemand(context, false) == EXPECTED[i]);
+	}
+	context.final_score = LandValueScore{UINT32_MAX};
+	CHECK(CalculateHouseDensityDemand(context, false) == 16000);
+
+	context.town_mass = CalculateTownDevelopmentMass(500, 80, false);
+	context.town_zone = 4;
+	context.final_score = LAND_VALUE_MAX;
+	context.commercial_demand = 20000;
+	context.affordability = 0;
+	CHECK(CalculateHouseDensityDemand(context, false) == 11000);
+
+	LandUseDevelopmentContext large = context;
+	large.town_mass = CalculateTownDevelopmentMass(50000, 6000, true);
+	CHECK(CalculateHouseDensityDemand(large, false) > CalculateHouseDensityDemand(context, false));
+	CHECK(CalculateHouseDensityDemand(large, false) <= LAND_USE_FACTOR_MAX);
+
+	context.active = false;
+	CHECK(CalculateHouseDensityDemand(context) == LAND_USE_FACTOR_NEUTRAL);
+	context.active = true;
+	context.density_influence_percent = 0;
+	CHECK(CalculateHouseDensityDemand(context) == LAND_USE_FACTOR_NEUTRAL);
+	context.density_influence_percent = 200;
+	CHECK(CalculateHouseDensityDemand(context) >= LAND_USE_FACTOR_MIN);
+	CHECK(CalculateHouseDensityDemand(context) <= LAND_USE_FACTOR_MAX);
+}
+
+TEST_CASE("Land-use weights favour large-town expansion and high-density central houses")
+{
+	const HouseLandUseProfile low = CalculateHouseLandUseProfile(12, 1, 0);
+	const HouseLandUseProfile medium = CalculateHouseLandUseProfile(30, 1, 1);
+	const HouseLandUseProfile high = CalculateHouseLandUseProfile(100, 1, 3);
+	const HouseLandUseProfile special = CalculateHouseLandUseProfile(0, 1, 4, true);
+
+	LandUseDevelopmentContext small{};
+	small.active = true;
+	small.final_score = LandValueScore{100};
+	small.town_mass = CalculateTownDevelopmentMass(500, 80, false);
+	small.residential_demand = 9500;
+	small.commercial_demand = 9000;
+	small.affordability = 10100;
+	small.density_influence_percent = 100;
+	small.town_zone = 0;
+
+	LandUseDevelopmentContext large = small;
+	large.final_score = LandValueScore{250};
+	large.town_mass = CalculateTownDevelopmentMass(50000, 6000, true);
+	large.residential_demand = 11000;
+	large.affordability = 11000;
+	CHECK(CalculateResidentialHouseWeightModifier(large, low) > LAND_USE_FACTOR_NEUTRAL);
+	CHECK(CalculateResidentialHouseWeightModifier(large, low) > CalculateResidentialHouseWeightModifier(small, low));
+	CHECK(CalculateHouseLandUseWeightModifier(small, low) <= LAND_USE_FACTOR_NEUTRAL);
+
+	large.final_score = LandValueScore{5000};
+	large.town_zone = 4;
+	large.commercial_demand = 12000;
+	large.affordability = 8000;
+	const uint16_t low_high_land = CalculateHouseLandUseWeightModifier(large, low);
+	const uint16_t high_high_land = CalculateHouseLandUseWeightModifier(large, high);
+	CHECK(low_high_land < LAND_USE_FACTOR_NEUTRAL);
+	CHECK(high_high_land > LAND_USE_FACTOR_NEUTRAL);
+	CHECK(high_high_land > low_high_land);
+	CHECK(CalculateHouseLandUseWeightModifier(large, special) == LAND_USE_FACTOR_NEUTRAL);
+	CHECK(CalculateHouseLandUseWeightModifier(large, medium) >= LAND_USE_FACTOR_MIN);
+	CHECK(CalculateHouseLandUseWeightModifier(large, medium) <= LAND_USE_FACTOR_MAX);
+
+	large.active = false;
+	CHECK(CalculateHouseLandUseWeightModifier(large, low) == LAND_USE_FACTOR_NEUTRAL);
+	CHECK(CalculateHouseLandUseWeightModifier(large, high) == LAND_USE_FACTOR_NEUTRAL);
+}
+
+TEST_CASE("Adjusted house candidate weights are nonzero bounded and overflow safe")
+{
+	CHECK(CalculateAdjustedHouseCandidateWeight(0, LAND_USE_FACTOR_MIN) == 0);
+	CHECK(CalculateAdjustedHouseCandidateWeight(1, LAND_USE_FACTOR_MIN) == 1);
+	CHECK(CalculateAdjustedHouseCandidateWeight(16, LAND_USE_FACTOR_NEUTRAL) == 16);
+	CHECK(CalculateAdjustedHouseCandidateWeight(16, LAND_USE_FACTOR_MIN) == 8);
+	CHECK(CalculateAdjustedHouseCandidateWeight(16, LAND_USE_FACTOR_MAX) == 25);
+	CHECK(CalculateAdjustedHouseCandidateWeight(UINT32_MAX, LAND_USE_FACTOR_MAX) == UINT32_MAX);
+	for (uint16_t modifier = LAND_USE_FACTOR_MIN; modifier <= LAND_USE_FACTOR_MAX; ++modifier) {
+		CHECK(CalculateAdjustedHouseCandidateWeight(1, modifier) >= 1);
+		CHECK(CalculateAdjustedHouseCandidateWeight(255, modifier) >= 1);
+	}
+}
+
+TEST_CASE("Real town house selection applies one weight pass and preserves a single-candidate RNG path")
+{
+	ResetHouses();
+	std::vector<bool> enabled;
+	std::vector<uint8_t> probability;
+	enabled.reserve(HouseSpec::Specs().size());
+	probability.reserve(HouseSpec::Specs().size());
+	for (const HouseSpec &hs : HouseSpec::Specs()) {
+		enabled.push_back(hs.enabled);
+		probability.push_back(hs.probability);
+	}
+	const LandscapeType old_landscape = _settings_game.game_creation.landscape;
+	auto restore = scope_guard([&]() {
+		for (size_t i = 0; i < HouseSpec::Specs().size(); ++i) {
+			HouseSpec::Get(i)->enabled = enabled[i];
+			HouseSpec::Get(i)->probability = probability[i];
+		}
+		_settings_game.game_creation.landscape = old_landscape;
+		_current_company = COMPANY_SPECTATOR;
+		_town_pool.CleanPool();
+		RebuildTownKdtree();
+	});
+
+	for (HouseSpec &hs : HouseSpec::Specs()) hs.enabled = false;
+	HouseSpec::Get(0x2C)->enabled = true;
+	HouseSpec::Get(0x2C)->probability = 16;
+	_settings_game.game_creation.landscape = LandscapeType::Arctic;
+
+	auto run_build = [&](uint16_t density_percent) {
+		CAPTURE(density_percent);
+		ResetLandValueTestWorld();
+		_settings_game.game_creation.landscape = LandscapeType::Arctic;
+		_settings_game.economy.land_value_density_percent = density_percent;
+		for (HouseSpec &hs : HouseSpec::Specs()) hs.enabled = false;
+		HouseSpec::Get(0x2C)->enabled = true;
+		HouseSpec::Get(0x2C)->probability = 16;
+
+		Town *town = CreateLandValueTestTown(10, 10);
+		InitializeBuildingCounts();
+		town->cache.population = 50000;
+		town->cache.num_houses = 0;
+		town->larger_town = true;
+		town->land_value_score = 5000;
+		town->cache.squared_town_zone_radius = {100, 81, 64, 0, 0};
+		RebuildLandValueCache(town);
+		const TileIndex tile = TileXY(11, 10);
+		_current_company = OWNER_TOWN;
+		SetRandomSeed(0x12345678);
+		REQUIRE(TryBuildTownHouse(town, tile, {TownExpandMode::Buildings}));
+		REQUIRE(IsTileType(tile, TileType::House));
+		CHECK(GetHouseType(tile) == 0x2C);
+		CHECK(town->cache.num_houses == 1);
+		return std::array<uint32_t, 2>{_random.state[0], _random.state[1]};
+	};
+
+	const auto neutral_random = run_build(0);
+	const auto active_random = run_build(100);
+	CHECK(neutral_random == active_random);
 }

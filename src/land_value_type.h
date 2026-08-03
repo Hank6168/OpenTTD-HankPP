@@ -53,6 +53,45 @@ struct TownDevelopmentDemandCache {
 	bool active = false;
 };
 
+static constexpr uint16_t LAND_USE_FACTOR_NEUTRAL = 10000; ///< Neutral house-selection factor (100%).
+static constexpr uint16_t LAND_USE_FACTOR_MIN = 5000;      ///< Minimum public house-selection factor (50%).
+static constexpr uint16_t LAND_USE_FACTOR_MAX = 16000;     ///< Maximum public house-selection factor (160%).
+
+/** Stable density bands derived from population per occupied tile. */
+enum class HouseDensityClass : uint8_t {
+	VeryLow,
+	Low,
+	Medium,
+	High,
+	VeryHigh,
+};
+
+/** Read-only, non-persistent land-use profile derived from one HouseSpec. */
+struct HouseLandUseProfile {
+	uint16_t population_per_tile = 0;
+	uint8_t tile_count = 1;
+	uint8_t minimum_zone = 0;
+	HouseDensityClass density_class = HouseDensityClass::VeryLow;
+	bool valid = false;
+	bool residential_like = false;
+	bool commercial_like = false;
+	bool special_building = false;
+};
+
+/** O(1), read-only local context used while weighting an already legal house candidate. */
+struct LandUseDevelopmentContext {
+	LandValueScore final_score = LAND_VALUE_BASE;
+	TownDevelopmentMass town_mass{0};
+	uint16_t residential_demand = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+	uint16_t commercial_demand = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+	uint16_t affordability = TOWN_DEVELOPMENT_DEMAND_NEUTRAL;
+	uint16_t density_influence_percent = 0;
+	uint8_t town_zone = 0;
+	uint32_t town_population = 0;
+	bool larger_town = false;
+	bool active = false;
+};
+
 /** In-memory derived land-value data for a town. */
 struct LandValueCache {
 	LandValueDistanceScores distance_score = [] {

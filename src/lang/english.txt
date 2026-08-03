@@ -2233,8 +2233,8 @@ STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT            :Infrastructure 
 STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT_HELPTEXT   :Reserved land-value percentage for infrastructure construction costs. This setting is saved but does not affect costs in this version
 STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT                    :Land-value influence on town development demand: {STRING2}
 STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT_HELPTEXT           :Controls how strongly land value changes derived residential, commercial, industrial and affordability demand indices. 0% keeps all indices neutral; the default applies a mild influence. This does not guarantee town growth. Actual house and industry effects are reserved for later patches
-STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT                   :House density percentage: {STRING2}
-STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT_HELPTEXT          :Reserved land-value influence on house density. This setting is saved but does not affect house selection in this version
+STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT                   :Land-value influence on town house use and density: {STRING2}
+STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT_HELPTEXT          :Controls the relative preference among already legal town house candidates. 0% keeps the Patch 007 selection weights; higher values favour ordinary housing in affordable large-town expansion areas and higher-capacity buildings on costly central land. This does not change town growth speed or industries
 
 STR_CONFIG_SETTING_REVERSE_AT_SIGNALS                           :Automatic reversing at signals: {STRING2}
 STR_CONFIG_SETTING_REVERSE_AT_SIGNALS_HELPTEXT                  :Allow trains to reverse on a signal, if they waited there a long time

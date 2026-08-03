@@ -287,7 +287,6 @@ Money HouseSpec::GetRemovalCost() const
 	return (_price[Price::ClearHouse] * this->removal_cost) >> 8;
 }
 
-static bool TryBuildTownHouse(Town *t, TileIndex tile, TownExpandModes modes);
 static Town *CreateRandomTown(uint attempts, uint32_t townnameparts, TownSize size, bool city, TownLayout layout);
 
 static void TownDrawHouseLift(const TileInfo *ti)
@@ -3171,7 +3170,7 @@ static void BuildTownHouse(Town *t, TileIndex tile, const HouseSpec *hs, HouseID
  * @param modes The parts of the town that are being grown.
  * @return false iff no house can be built on this tile.
  */
-static bool TryBuildTownHouse(Town *t, TileIndex tile, TownExpandModes modes)
+bool TryBuildTownHouse(Town *t, TileIndex tile, TownExpandModes modes)
 {
 	/* forbidden building here by town layout */
 	if (!TownLayoutAllowsHouseHere(t, TileArea(tile, 1, 1), modes)) return false;
@@ -3189,13 +3188,16 @@ static bool TryBuildTownHouse(Town *t, TileIndex tile, TownExpandModes modes)
 	probs.clear();
 
 	uint probability_max = 0;
+	const bool land_use_selection_context = !_generating_world && !_generating_town && _game_mode != GameMode::Editor;
+	const LandUseDevelopmentContext land_use = GetLandUseDevelopmentContext(t, tile, to_underlying(zone), land_use_selection_context);
 
 	/* Generate a list of all possible houses that can be built. */
 	for (const auto &hs : HouseSpec::Specs()) {
 		if (IsHouseTypeAllowed(hs.Index(), above_snowline, zone).Failed()) continue;
 		if (IsAnotherHouseTypeAllowedInTown(t, hs.Index()).Failed()) continue;
 
-		uint cur_prob = hs.probability;
+		const HouseLandUseProfile profile = GetHouseLandUseProfile(hs.Index());
+		uint cur_prob = CalculateAdjustedHouseCandidateWeight(hs.probability, CalculateHouseLandUseWeightModifier(land_use, profile));
 		probability_max += cur_prob;
 		probs.emplace_back(hs.Index(), cur_prob);
 	}

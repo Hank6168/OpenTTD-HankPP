@@ -2222,8 +2222,8 @@ STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT            :基础设施地
 STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT_HELPTEXT   :为基础设施建造费用预留的地价比例。本版本仅保存该设置，不影响实际费用
 STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT                    :地价对城市发展需求的影响：{STRING}
 STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT_HELPTEXT           :控制地价对住宅、商业、工业和土地可负担性等派生需求指数的影响强度。0%时所有指数保持中性；默认值仅施加温和影响。本设置不直接保证城镇增长，房屋和产业的实际应用留待后续补丁
-STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT                   :房屋密度地价比例：{STRING}
-STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT_HELPTEXT          :为地价影响房屋密度预留的比例。本版本仅保存该设置，不影响房屋选择
+STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT                   :地价对城镇房屋用途与密度的影响：{STRING}
+STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT_HELPTEXT          :控制原本合法的城镇房屋候选之间的相对倾向。0%保持Patch 007的选择权重；较高数值会使大城镇低至中地价扩展区更偏向普通住宅，并使高价中心区更偏向高容量建筑。本设置不改变城镇增长速度，也不影响产业
 
 STR_CONFIG_SETTING_REVERSE_AT_SIGNALS                           :在信号灯前掉头：{STRING}
 STR_CONFIG_SETTING_REVERSE_AT_SIGNALS_HELPTEXT                  :当列车在信号灯前长时间等待时，允许掉头

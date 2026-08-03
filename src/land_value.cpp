@@ -14,6 +14,7 @@
 #include "company_base.h"
 #include "economy_func.h"
 #include "genworld.h"
+#include "house.h"
 #include "land_value.h"
 #include "map_func.h"
 #include "settings_type.h"
@@ -369,6 +370,186 @@ void RebuildTownDevelopmentDemandCache(Town *town)
 	town->cache.development_demand = CalculateTownDevelopmentDemand(town->cache.population, town->cache.num_houses,
 			town->larger_town, ClampLandValueScore(town->land_value_score),
 			_settings_game.economy.land_value_growth_percent, IsLandValueEnabled());
+}
+
+/** Clamp a signed land-use factor to its public range. */
+static uint16_t ClampLandUseFactor(int64_t factor)
+{
+	return static_cast<uint16_t>(std::clamp<int64_t>(factor, LAND_USE_FACTOR_MIN, LAND_USE_FACTOR_MAX));
+}
+
+/** Scale a full-strength land-use factor around neutral by the saved server setting. */
+static uint16_t ScaleLandUseFactor(uint16_t full_factor, uint16_t influence_percent, bool active)
+{
+	if (!active || influence_percent == 0) return LAND_USE_FACTOR_NEUTRAL;
+	const int64_t influence = std::min<uint32_t>(influence_percent, 200);
+	const int64_t delta = static_cast<int64_t>(full_factor) - LAND_USE_FACTOR_NEUTRAL;
+	return ClampLandUseFactor(LAND_USE_FACTOR_NEUTRAL + delta * influence / 100);
+}
+
+/** Convert population per occupied tile to the frozen five-band density profile. */
+HouseDensityClass ClassifyHouseDensity(uint32_t population_per_tile)
+{
+	if (population_per_tile < 8) return HouseDensityClass::VeryLow;
+	if (population_per_tile < 20) return HouseDensityClass::Low;
+	if (population_per_tile < 40) return HouseDensityClass::Medium;
+	if (population_per_tile < 80) return HouseDensityClass::High;
+	return HouseDensityClass::VeryHigh;
+}
+
+/** Derive a conservative, use-neutral profile without modifying HouseSpec or NewGRF state. */
+HouseLandUseProfile CalculateHouseLandUseProfile(uint32_t population, uint8_t tile_count, uint8_t minimum_zone, bool special_building)
+{
+	HouseLandUseProfile result{};
+	result.tile_count = std::max<uint8_t>(tile_count, 1);
+	result.minimum_zone = std::min<uint8_t>(minimum_zone, 4);
+	result.population_per_tile = ClampTo<uint16_t>(population / result.tile_count);
+	result.density_class = ClassifyHouseDensity(result.population_per_tile);
+	result.valid = true;
+	result.special_building = special_building || population == 0;
+	result.residential_like = !result.special_building && result.minimum_zone <= 2 &&
+			result.density_class <= HouseDensityClass::Medium;
+	/* HouseSpec has no stable residential/commercial purpose field across NewGRFs. */
+	result.commercial_like = false;
+	return result;
+}
+
+/** Derive a profile directly from the authoritative HouseSpec registry. */
+HouseLandUseProfile GetHouseLandUseProfile(HouseID house)
+{
+	if (static_cast<size_t>(house) >= HouseSpec::Specs().size()) return {};
+	const HouseSpec *hs = HouseSpec::Get(house);
+	if (!hs->building_flags.Any(BUILDING_HAS_1_TILE)) return {};
+
+	uint8_t tile_count = 1;
+	if (hs->building_flags.Test(BuildingFlag::Size2x2)) {
+		tile_count = 4;
+	} else if (hs->building_flags.Any(BUILDING_HAS_2_TILES)) {
+		tile_count = 2;
+	}
+
+	uint8_t minimum_zone = 0;
+	bool has_zone = false;
+	for (HouseZone zone = HouseZone::TownEdge; zone < HouseZone::TownEnd; zone++) {
+		if (!hs->building_availability.Test(zone)) continue;
+		minimum_zone = to_underlying(zone);
+		has_zone = true;
+		break;
+	}
+	if (!has_zone) return {};
+
+	const bool special = hs->building_flags.Any({BuildingFlag::IsChurch, BuildingFlag::IsStadium});
+	return CalculateHouseLandUseProfile(hs->population, tile_count, minimum_zone, special);
+}
+
+/** Build the local, read-only context once for one house-selection attempt. */
+LandUseDevelopmentContext GetLandUseDevelopmentContext(const Town *town, TileIndex tile, uint8_t town_zone, bool selection_context)
+{
+	LandUseDevelopmentContext result{};
+	result.town_zone = std::min<uint8_t>(town_zone, 4);
+	result.density_influence_percent = std::min<uint16_t>(_settings_game.economy.land_value_density_percent, 200);
+	if (town == nullptr || !IsValidTile(tile)) return result;
+
+	const TownDevelopmentDemandCache demand = GetTownDevelopmentDemand(town);
+	result.final_score = GetFinalLandValueScore(tile);
+	result.town_mass = demand.mass;
+	result.residential_demand = demand.residential_demand;
+	result.commercial_demand = demand.commercial_demand;
+	result.affordability = demand.affordability;
+	result.town_population = town->cache.population;
+	result.larger_town = town->larger_town;
+	result.active = selection_context && IsLandValueEnabled() && result.density_influence_percent != 0;
+	return result;
+}
+
+/** Calculate the bounded local density tendency before or after setting-strength scaling. */
+uint16_t CalculateHouseDensityDemand(const LandUseDevelopmentContext &context, bool scaled)
+{
+	if (!context.active) return LAND_USE_FACTOR_NEUTRAL;
+
+	static constexpr std::array<uint16_t, 7> SCORE_CURVE = {7000, 8500, 10000, 11500, 13500, 15000, 16000};
+	const int64_t score_base = GetTownDevelopmentCurveValue(context.final_score, SCORE_CURVE);
+	static constexpr std::array<int16_t, 5> ZONE_ADJUSTMENT = {-600, -300, 0, 400, 800};
+	const int64_t mass_adjustment = std::clamp<int64_t>((static_cast<int64_t>(context.town_mass.base()) - 10000) / 5, -1500, 2000);
+	const int64_t commercial_adjustment = std::clamp<int64_t>((static_cast<int64_t>(context.commercial_demand) - 10000) / 4, -750, 1500);
+	const int64_t affordability_adjustment = std::clamp<int64_t>((10000 - static_cast<int64_t>(context.affordability)) / 5, -1000, 1200);
+
+	int64_t full = score_base + ZONE_ADJUSTMENT[context.town_zone] + mass_adjustment + commercial_adjustment + affordability_adjustment;
+	uint16_t town_cap = LAND_USE_FACTOR_MAX;
+	if (context.town_mass.base() < 3000) {
+		town_cap = 11000;
+	} else if (context.town_mass.base() < 6000) {
+		town_cap = 12500;
+	} else if (context.town_mass.base() < 10000) {
+		town_cap = 14000;
+	}
+	full = std::clamp<int64_t>(full, LAND_USE_FACTOR_MIN, town_cap);
+	const uint16_t full_factor = static_cast<uint16_t>(full);
+	return scaled ? ScaleLandUseFactor(full_factor, context.density_influence_percent, true) : full_factor;
+}
+
+/** Calculate the conservative ordinary-residential siting tendency for one profile. */
+uint16_t CalculateResidentialHouseWeightModifier(const LandUseDevelopmentContext &context, const HouseLandUseProfile &profile)
+{
+	if (!context.active || !profile.valid || !profile.residential_like) return LAND_USE_FACTOR_NEUTRAL;
+
+	const uint32_t score = ClampLandValueScore(context.final_score.base()).base();
+	int64_t siting_adjustment = 0;
+	if (score < 150) {
+		siting_adjustment = context.town_mass.base() >= 10000 ? 300 : -300;
+	} else if (score < 600) {
+		siting_adjustment = context.town_mass.base() >= 10000 ? 1000 : (context.town_mass.base() >= 3000 ? 200 : 0);
+	} else if (score < 1200) {
+		siting_adjustment = context.town_mass.base() >= 10000 ? 500 : 0;
+	} else if (score < 2500) {
+		siting_adjustment = profile.density_class <= HouseDensityClass::Low ? -500 : 0;
+	} else if (score < 5000) {
+		siting_adjustment = profile.density_class <= HouseDensityClass::Low ? -2000 : -750;
+	} else {
+		siting_adjustment = profile.density_class <= HouseDensityClass::Low ? -3500 : -1500;
+	}
+
+	const int64_t demand_adjustment = std::clamp<int64_t>(static_cast<int64_t>(context.residential_demand) - 10000, -2500, 2500);
+	const int64_t affordability_adjustment = std::clamp<int64_t>((static_cast<int64_t>(context.affordability) - 10000) / 2, -2000, 2000);
+	const uint16_t full = ClampLandUseFactor(10000 + siting_adjustment + demand_adjustment + affordability_adjustment);
+	return ScaleLandUseFactor(full, context.density_influence_percent, true);
+}
+
+/** Convert the local density target to a profile-specific relative weight. */
+uint16_t CalculateDensityHouseWeightModifier(uint16_t density_factor, const HouseLandUseProfile &profile)
+{
+	if (!profile.valid || profile.special_building) return LAND_USE_FACTOR_NEUTRAL;
+	const int64_t delta = static_cast<int64_t>(ClampLandUseFactor(density_factor)) - LAND_USE_FACTOR_NEUTRAL;
+	int64_t adjusted_delta = 0;
+	switch (profile.density_class) {
+		case HouseDensityClass::VeryLow: adjusted_delta = -delta; break;
+		case HouseDensityClass::Low: adjusted_delta = -delta * 3 / 4; break;
+		case HouseDensityClass::Medium: adjusted_delta = delta / 4; break;
+		case HouseDensityClass::High: adjusted_delta = delta * 3 / 4; break;
+		case HouseDensityClass::VeryHigh: adjusted_delta = delta; break;
+	}
+	return ClampLandUseFactor(LAND_USE_FACTOR_NEUTRAL + adjusted_delta);
+}
+
+/** Combine residential siting and density matching into one bounded candidate modifier. */
+uint16_t CalculateHouseLandUseWeightModifier(const LandUseDevelopmentContext &context, const HouseLandUseProfile &profile)
+{
+	if (!context.active || !profile.valid || profile.special_building) return LAND_USE_FACTOR_NEUTRAL;
+	const uint16_t residential = CalculateResidentialHouseWeightModifier(context, profile);
+	const uint16_t density = CalculateDensityHouseWeightModifier(CalculateHouseDensityDemand(context), profile);
+	const uint64_t combined = static_cast<uint64_t>(residential) * density / LAND_USE_FACTOR_NEUTRAL;
+	if (context.town_mass.base() < 3000 && ClampLandValueScore(context.final_score.base()).base() < 150 && profile.residential_like) {
+		return static_cast<uint16_t>(std::min<uint64_t>(combined, LAND_USE_FACTOR_NEUTRAL));
+	}
+	return ClampLandUseFactor(combined);
+}
+
+/** Apply a bounded modifier to an existing probability without overflow or zeroing a legal candidate. */
+uint32_t CalculateAdjustedHouseCandidateWeight(uint32_t original_weight, uint16_t land_use_modifier)
+{
+	if (original_weight == 0) return 0;
+	const uint64_t adjusted = static_cast<uint64_t>(original_weight) * ClampLandUseFactor(land_use_modifier) / LAND_USE_FACTOR_NEUTRAL;
+	return static_cast<uint32_t>(std::clamp<uint64_t>(adjusted, 1, std::numeric_limits<uint32_t>::max()));
 }
 
 /** Calculate a non-negative, saturating land-purchase surcharge using fixed-point integer arithmetic. */

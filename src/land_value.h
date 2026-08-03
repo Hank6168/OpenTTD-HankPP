@@ -13,6 +13,7 @@
 #include "land_value_type.h"
 #include "command_type.h"
 #include "economy_type.h"
+#include "house_type.h"
 #include "tile_type.h"
 #include "town_type.h"
 
@@ -20,6 +21,7 @@
 #include <optional>
 
 struct Town;
+struct HouseSpec;
 
 LandValueScore ClampLandValueScore(uint64_t score);
 LandValueModifier ClampLandValueModifier(uint64_t modifier);
@@ -93,6 +95,16 @@ TownDevelopmentDemandCache CalculateTownDevelopmentDemand(uint32_t population, u
 TownDevelopmentDemandLevel GetTownDevelopmentDemandLevel(uint16_t demand);
 TownDevelopmentDemandCache GetTownDevelopmentDemand(const Town *town);
 void RebuildTownDevelopmentDemandCache(Town *town);
+
+HouseDensityClass ClassifyHouseDensity(uint32_t population_per_tile);
+HouseLandUseProfile CalculateHouseLandUseProfile(uint32_t population, uint8_t tile_count, uint8_t minimum_zone, bool special_building = false);
+HouseLandUseProfile GetHouseLandUseProfile(HouseID house);
+LandUseDevelopmentContext GetLandUseDevelopmentContext(const Town *town, TileIndex tile, uint8_t town_zone, bool selection_context = true);
+uint16_t CalculateHouseDensityDemand(const LandUseDevelopmentContext &context, bool scaled = true);
+uint16_t CalculateResidentialHouseWeightModifier(const LandUseDevelopmentContext &context, const HouseLandUseProfile &profile);
+uint16_t CalculateDensityHouseWeightModifier(uint16_t density_factor, const HouseLandUseProfile &profile);
+uint16_t CalculateHouseLandUseWeightModifier(const LandUseDevelopmentContext &context, const HouseLandUseProfile &profile);
+uint32_t CalculateAdjustedHouseCandidateWeight(uint32_t original_weight, uint16_t land_use_modifier);
 
 /** Reason why a land-purchase surcharge is not applied. */
 enum class LandPurchaseCostStatus : uint8_t {

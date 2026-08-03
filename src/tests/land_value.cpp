@@ -148,6 +148,35 @@ TEST_CASE("Land value distances map to stable cache bands")
 	CHECK(GetLandValueDistanceBand(std::numeric_limits<uint32_t>::max() - 1, std::numeric_limits<uint32_t>::max()) == 62);
 }
 
+TEST_CASE("Land value display levels use stable non-authoritative thresholds")
+{
+	CHECK(GetLandValueLevel(LandValueScore{0}) == LandValueLevel::VeryLow);
+	CHECK(GetLandValueLevel(LandValueScore{149}) == LandValueLevel::VeryLow);
+	CHECK(GetLandValueLevel(LandValueScore{150}) == LandValueLevel::Low);
+	CHECK(GetLandValueLevel(LandValueScore{299}) == LandValueLevel::Low);
+	CHECK(GetLandValueLevel(LandValueScore{300}) == LandValueLevel::Average);
+	CHECK(GetLandValueLevel(LandValueScore{599}) == LandValueLevel::Average);
+	CHECK(GetLandValueLevel(LandValueScore{600}) == LandValueLevel::AboveAverage);
+	CHECK(GetLandValueLevel(LandValueScore{1199}) == LandValueLevel::AboveAverage);
+	CHECK(GetLandValueLevel(LandValueScore{1200}) == LandValueLevel::High);
+	CHECK(GetLandValueLevel(LandValueScore{2499}) == LandValueLevel::High);
+	CHECK(GetLandValueLevel(LandValueScore{2500}) == LandValueLevel::VeryHigh);
+	CHECK(GetLandValueLevel(LandValueScore{4999}) == LandValueLevel::VeryHigh);
+	CHECK(GetLandValueLevel(LandValueScore{5000}) == LandValueLevel::Core);
+	CHECK(GetLandValueLevel(LAND_VALUE_MAX) == LandValueLevel::Core);
+}
+
+TEST_CASE("Land value display radius reuses the rounded integer square root")
+{
+	CHECK(CalculateLandValueInfluenceRadius(0) == 0);
+	CHECK(CalculateLandValueInfluenceRadius(1) == 1);
+	CHECK(CalculateLandValueInfluenceRadius(63) == 8);
+	CHECK(CalculateLandValueInfluenceRadius(64) == 8);
+	CHECK(CalculateLandValueInfluenceRadius(7055) == 84);
+	CHECK(CalculateLandValueInfluenceRadius(7056) == 84);
+	CHECK(CalculateLandValueInfluenceRadius(std::numeric_limits<uint32_t>::max()) == 0x10000);
+}
+
 TEST_CASE("Land value cache defaults are safe")
 {
 	const LandValueCache cache{};
@@ -272,6 +301,11 @@ TEST_CASE("Land value query is safe without a town and rejects invalid console t
 	CHECK(ResolveLandValueTileIndex(Map::Size() - 1).has_value());
 	CHECK_FALSE(ResolveLandValueTileIndex(Map::Size()).has_value());
 	CHECK_FALSE(ResolveLandValueTileIndex(std::numeric_limits<uint64_t>::max()).has_value());
+	CHECK(ResolveLandValueTileCoordinates(5, 5) == TileXY(5, 5));
+	CHECK(ResolveLandValueTileCoordinates(Map::SizeX() - 1, Map::SizeY() - 1) == TileXY(Map::SizeX() - 1, Map::SizeY() - 1));
+	CHECK_FALSE(ResolveLandValueTileCoordinates(Map::SizeX(), 0).has_value());
+	CHECK_FALSE(ResolveLandValueTileCoordinates(0, Map::SizeY()).has_value());
+	CHECK_FALSE(ResolveLandValueTileCoordinates(std::numeric_limits<uint64_t>::max(), 0).has_value());
 }
 
 TEST_CASE("Disabling land value makes queries neutral and preserves persistent state")

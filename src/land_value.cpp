@@ -9,6 +9,7 @@
 
 #include "stdafx.h"
 
+#include "core/math_func.hpp"
 #include "land_value.h"
 #include "map_func.h"
 #include "settings_type.h"
@@ -143,6 +144,25 @@ uint8_t GetLandValueDistanceBand(uint32_t distance_squared, uint32_t max_distanc
 	return static_cast<uint8_t>(static_cast<uint64_t>(distance_squared) * (LAND_VALUE_DISTANCE_BAND_COUNT - 1) / max_distance_squared);
 }
 
+/** Map a score to a player-facing display level without changing any economic logic. */
+LandValueLevel GetLandValueLevel(LandValueScore score)
+{
+	const uint32_t value = ClampLandValueScore(score.base()).base();
+	if (value < 150) return LandValueLevel::VeryLow;
+	if (value < 300) return LandValueLevel::Low;
+	if (value < 600) return LandValueLevel::Average;
+	if (value < 1200) return LandValueLevel::AboveAverage;
+	if (value < 2500) return LandValueLevel::High;
+	if (value < 5000) return LandValueLevel::VeryHigh;
+	return LandValueLevel::Core;
+}
+
+/** Return the approximate radius represented by a squared distance using the existing integer square root. */
+uint32_t CalculateLandValueInfluenceRadius(uint32_t max_distance_squared)
+{
+	return IntSqrt(max_distance_squared);
+}
+
 /** Return the distance-adjusted score for a tile using the nearest town's cached curve. */
 bool IsLandValueEnabled()
 {
@@ -156,6 +176,13 @@ std::optional<TileIndex> ResolveLandValueTileIndex(uint64_t raw_tile)
 	const TileIndex tile{static_cast<uint32_t>(raw_tile)};
 	if (!IsValidTile(tile)) return std::nullopt;
 	return tile;
+}
+
+/** Resolve player-facing map coordinates to a valid tile for read-only debug queries. */
+std::optional<TileIndex> ResolveLandValueTileCoordinates(uint64_t raw_x, uint64_t raw_y)
+{
+	if (raw_x >= Map::SizeX() || raw_y >= Map::SizeY()) return std::nullopt;
+	return TileXY(static_cast<uint>(raw_x), static_cast<uint>(raw_y));
 }
 
 /** Return a complete, internally consistent, read-only land-value query result. */

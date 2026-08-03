@@ -614,6 +614,10 @@ public:
 		tr.top += GetCharacterHeight(FontSize::Normal);
 		DrawString(tr, GetString(STR_TOWN_VIEW_LAND_VALUE_SCORE, this->town->land_value_score));
 		tr.top += GetCharacterHeight(FontSize::Normal);
+		const LandValueScore target_score = CalculateLandValueTargetScore(
+				this->town->cache.population, this->town->cache.num_houses, this->town->larger_town);
+		DrawString(tr, GetString(STR_TOWN_VIEW_LAND_VALUE_TARGET_SCORE, target_score.base()));
+		tr.top += GetCharacterHeight(FontSize::Normal);
 		if (land_value.rank == 0) {
 			DrawString(tr, STR_TOWN_VIEW_LAND_VALUE_RANK_UNRANKED);
 		} else {
@@ -629,6 +633,9 @@ public:
 		}
 		tr.top += GetCharacterHeight(FontSize::Normal);
 		DrawString(tr, GetString(STR_TOWN_VIEW_LAND_VALUE_CENTER_SCORE, land_value.center_score.base()));
+		tr.top += GetCharacterHeight(FontSize::Normal);
+		DrawString(tr, GetString(STR_TOWN_VIEW_LAND_VALUE_INFLUENCE_RADIUS,
+				CalculateLandValueInfluenceRadius(land_value.max_distance_squared)));
 		tr.top += GetCharacterHeight(FontSize::Normal);
 
 		StringID str_last_period;
@@ -777,7 +784,7 @@ public:
 	 */
 	uint GetDesiredInfoHeight(int width) const
 	{
-		uint aimed_height = static_cast<uint>(6 + CountBits(CargoSpec::town_production_cargo_mask[TownProductionEffect::Passengers] | CargoSpec::town_production_cargo_mask[TownProductionEffect::Mail])) * GetCharacterHeight(FontSize::Normal);
+		uint aimed_height = static_cast<uint>(8 + CountBits(CargoSpec::town_production_cargo_mask[TownProductionEffect::Passengers] | CargoSpec::town_production_cargo_mask[TownProductionEffect::Mail])) * GetCharacterHeight(FontSize::Normal);
 
 		bool first = true;
 		for (TownAcceptanceEffect i = TownAcceptanceEffect::Begin; i < TownAcceptanceEffect::End; i++) {

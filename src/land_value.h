@@ -33,6 +33,20 @@ uint32_t CalculateLandValueMaxDistanceSquared(uint32_t town_radius_squared, uint
 
 uint8_t GetLandValueDistanceBand(uint32_t distance_squared, uint32_t max_distance_squared);
 
+/** Player-facing classification of a land-value score. This is display-only and has no gameplay authority. */
+enum class LandValueLevel : uint8_t {
+	VeryLow,
+	Low,
+	Average,
+	AboveAverage,
+	High,
+	VeryHigh,
+	Core,
+};
+
+LandValueLevel GetLandValueLevel(LandValueScore score);
+uint32_t CalculateLandValueInfluenceRadius(uint32_t max_distance_squared);
+
 /** Complete read-only result of querying land value for one tile. */
 struct LandValueQueryResult {
 	TownID town_id = TownID::Invalid();
@@ -51,6 +65,7 @@ struct LandValueQueryResult {
 
 bool IsLandValueEnabled();
 std::optional<TileIndex> ResolveLandValueTileIndex(uint64_t raw_tile);
+std::optional<TileIndex> ResolveLandValueTileCoordinates(uint64_t raw_x, uint64_t raw_y);
 LandValueQueryResult GetLandValueQueryResult(TileIndex tile);
 LandValueScore GetLandValueScore(TileIndex tile);
 LandValueModifier GetLandValueModifier(TileIndex tile);

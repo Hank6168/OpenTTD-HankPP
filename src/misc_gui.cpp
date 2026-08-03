@@ -67,6 +67,22 @@ static WindowDesc _land_info_desc(__FILE__, __LINE__,
 	_nested_land_info_widgets
 );
 
+/** Convert the display-only land-value level to its localized label. */
+static StringID GetLandValueLevelString(LandValueLevel level)
+{
+	switch (level) {
+		case LandValueLevel::VeryLow:      return STR_LAND_VALUE_LEVEL_VERY_LOW;
+		case LandValueLevel::Low:          return STR_LAND_VALUE_LEVEL_LOW;
+		case LandValueLevel::Average:      return STR_LAND_VALUE_LEVEL_AVERAGE;
+		case LandValueLevel::AboveAverage: return STR_LAND_VALUE_LEVEL_ABOVE_AVERAGE;
+		case LandValueLevel::High:         return STR_LAND_VALUE_LEVEL_HIGH;
+		case LandValueLevel::VeryHigh:     return STR_LAND_VALUE_LEVEL_VERY_HIGH;
+		case LandValueLevel::Core:         return STR_LAND_VALUE_LEVEL_CORE;
+	}
+
+	NOT_REACHED();
+}
+
 class LandInfoWindow : public Window {
 	StringList landinfo_data{}; ///< Info lines to show.
 	std::string cargo_acceptance{}; ///< Centered multi-line string for cargo acceptance.
@@ -224,11 +240,17 @@ public:
 		} else {
 			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN, STR_TOWN_NAME, land_value.town_id));
 			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN_SCORE, land_value.town_score.base()));
+			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN_LEVEL,
+					GetLandValueLevelString(GetLandValueLevel(land_value.town_score))));
 			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_DISTANCE_BAND,
 					land_value.distance_band, LAND_VALUE_DISTANCE_BAND_COUNT - 1));
 			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_DISTANCE_SCORE, land_value.distance_score.base()));
 			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_MODIFIER, land_value.modifier.base()));
 			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_FINAL_SCORE, land_value.final_score.base()));
+			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_RELATIVE,
+					land_value.final_score.base(), 2));
+			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_TILE_LEVEL,
+					GetLandValueLevelString(GetLandValueLevel(land_value.final_score))));
 		}
 
 		/* Build date */

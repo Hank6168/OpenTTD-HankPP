@@ -3643,20 +3643,31 @@ static bool ConDumpLandValue(std::span<std::string_view> argv)
 {
 	if (argv.empty()) {
 		IConsolePrint(CC_HELP, "Dump the land-value state of a given tile.");
-		IConsolePrint(CC_HELP, "Usage: 'dump_land_value <tile>'");
-		IConsolePrint(CC_HELP, "The tile number can be decimal or hexadecimal.");
+		IConsolePrint(CC_HELP, "Usage: 'dump_land_value <tile>' or 'dump_land_value <x> <y>'");
+		IConsolePrint(CC_HELP, "The tile number and coordinates can be decimal or hexadecimal.");
 		return true;
 	}
 
-	if (argv.size() != 2) return false;
+	if (argv.size() != 2 && argv.size() != 3) return false;
 
-	const auto raw_tile = ParseInteger<uint64_t>(argv[1], 0);
-	if (!raw_tile.has_value()) {
-		IConsolePrint(CC_ERROR, "Invalid tile number.");
-		return true;
+	std::optional<TileIndex> tile;
+	if (argv.size() == 2) {
+		const auto raw_tile = ParseInteger<uint64_t>(argv[1], 0);
+		if (!raw_tile.has_value()) {
+			IConsolePrint(CC_ERROR, "Invalid tile number.");
+			return true;
+		}
+		tile = ResolveLandValueTileIndex(*raw_tile);
+	} else {
+		const auto x = ParseInteger<uint64_t>(argv[1], 0);
+		const auto y = ParseInteger<uint64_t>(argv[2], 0);
+		if (!x.has_value() || !y.has_value()) {
+			IConsolePrint(CC_ERROR, "Invalid tile coordinates.");
+			return true;
+		}
+		tile = ResolveLandValueTileCoordinates(*x, *y);
 	}
 
-	const auto tile = ResolveLandValueTileIndex(*raw_tile);
 	if (!tile.has_value()) {
 		IConsolePrint(CC_ERROR, "Tile does not exist.");
 		return true;
@@ -3664,6 +3675,7 @@ static bool ConDumpLandValue(std::span<std::string_view> argv)
 
 	const LandValueQueryResult result = GetLandValueQueryResult(*tile);
 	IConsolePrint(CC_DEFAULT, "TileIndex: {}", tile->base());
+	IConsolePrint(CC_DEFAULT, "Coordinates: {}, {}", TileX(*tile), TileY(*tile));
 	IConsolePrint(CC_DEFAULT, "enabled: {}", result.enabled ? "true" : "false");
 	IConsolePrint(CC_DEFAULT, "smoothing_percent: {}", _settings_game.economy.land_value_smoothing_percent);
 	IConsolePrint(CC_DEFAULT, "distance_scale: {}", _settings_game.economy.land_value_distance_scale);

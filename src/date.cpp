@@ -23,6 +23,7 @@
 #include "console_func.h"
 #include "debug.h"
 #include "landscape.h"
+#include "land_value.h"
 #include "widgets/statusbar_widget.h"
 #include "event_logs.h"
 #include "timer/timer.h"
@@ -425,6 +426,7 @@ static void OnNewCalendarMonth()
 static void OnNewEconomyMonth()
 {
 	CompaniesEconomyMonthlyLoop();
+	LandValueMonthlyLoop();
 	TownsMonthlyLoop();
 	IndustryMonthlyLoop();
 	SubsidyMonthlyLoop();

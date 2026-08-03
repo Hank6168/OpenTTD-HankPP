@@ -10,6 +10,7 @@
 #include "../stdafx.h"
 #include "../newgrf_house.h"
 #include "../town.h"
+#include "../land_value.h"
 #include "../landscape.h"
 #include "../subsidy_func.h"
 #include "../strings_func.h"
@@ -57,6 +58,8 @@ void RebuildTownCaches(bool cargo_update_required)
 			UpdateTownRadius(town);
 		}
 	}
+
+	RebuildAllLandValueCaches();
 }
 
 static void CheckMultiTileHouseTypes(bool &cargo_update_required, bool translate_house_types)

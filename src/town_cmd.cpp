@@ -2279,6 +2279,7 @@ static void DoCreateTown(Town *t, TileIndex tile, uint32_t townnameparts, TownSi
 	UpdateTownMaxPass(t);
 	UpdateAirportsNoise();
 	InitializeTownLandValue(t);
+	RebuildLandValueCache(t);
 }
 
 /**

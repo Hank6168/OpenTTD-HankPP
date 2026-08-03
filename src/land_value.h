@@ -24,6 +24,11 @@ uint64_t ApplyLandValueScore(uint64_t value, LandValueScore score, uint64_t limi
 uint64_t ApplyLandValueModifier(uint64_t value, LandValueModifier modifier, uint64_t limit = std::numeric_limits<uint64_t>::max());
 LandValueScore CombineLandValueScoreAndModifier(LandValueScore score, LandValueModifier modifier);
 
+LandValueScore CalculateLandValueTargetScore(uint32_t population, uint32_t num_houses, bool is_city);
+LandValueScore SmoothLandValueScore(LandValueScore old_score, LandValueScore target_score, uint8_t smoothing_percent);
+LandValueDistanceScores BuildLandValueDistanceScores(LandValueScore center_score);
+uint32_t CalculateLandValueMaxDistanceSquared(uint32_t town_radius_squared);
+
 uint8_t GetLandValueDistanceBand(uint32_t distance_squared, uint32_t max_distance_squared);
 
 LandValueScore GetLandValueScore(TileIndex tile);
@@ -32,5 +37,8 @@ LandValueScore GetFinalLandValueScore(TileIndex tile);
 
 void InitializeTownLandValue(Town *town);
 void InitializeLoadedTownLandValues(bool has_saved_land_value);
+void RebuildLandValueCache(Town *town);
+void RebuildAllLandValueCaches();
+void LandValueMonthlyLoop();
 
 #endif /* LAND_VALUE_H */

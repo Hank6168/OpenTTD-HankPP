@@ -10,6 +10,7 @@
 #include "stdafx.h"
 
 #include "land_value.h"
+#include "map_func.h"
 #include "town.h"
 
 #include "safeguards.h"
@@ -66,6 +67,64 @@ LandValueScore CombineLandValueScoreAndModifier(LandValueScore score, LandValueM
 }
 
 /**
+ * Calculate a town's target score from stable, already cached town data.
+ * Population and house contributions are independently bounded, while cities receive a small fixed premium.
+ */
+LandValueScore CalculateLandValueTargetScore(uint32_t population, uint32_t num_houses, bool is_city)
+{
+	static constexpr uint32_t POPULATION_DIVISOR = 25;
+	static constexpr uint32_t POPULATION_CONTRIBUTION_MAX = 6000;
+	static constexpr uint32_t HOUSE_DIVISOR = 2;
+	static constexpr uint32_t HOUSE_CONTRIBUTION_MAX = 3000;
+	static constexpr uint32_t CITY_BONUS = 250;
+
+	uint64_t target = LAND_VALUE_BASE.base();
+	target += std::min(population / POPULATION_DIVISOR, POPULATION_CONTRIBUTION_MAX);
+	target += std::min(num_houses / HOUSE_DIVISOR, HOUSE_CONTRIBUTION_MAX);
+	if (is_city) target += CITY_BONUS;
+
+	return ClampLandValueScore(target);
+}
+
+/** Smooth a score towards its target using integer percentage arithmetic. */
+LandValueScore SmoothLandValueScore(LandValueScore old_score, LandValueScore target_score, uint8_t smoothing_percent)
+{
+	const uint32_t smoothing = std::min<uint32_t>(smoothing_percent, 100);
+	const uint64_t old_value = ClampLandValueScore(old_score.base()).base();
+	const uint64_t target_value = ClampLandValueScore(target_score.base()).base();
+	const uint64_t smoothed = (old_value * (100 - smoothing) + target_value * smoothing) / 100;
+	return ClampLandValueScore(smoothed);
+}
+
+/** Build the monotonic distance curve for a town's current centre score. */
+LandValueDistanceScores BuildLandValueDistanceScores(LandValueScore center_score)
+{
+	static_assert(LAND_VALUE_DISTANCE_BAND_COUNT > 1);
+
+	LandValueDistanceScores scores{};
+	const uint32_t center = ClampLandValueScore(center_score.base()).base();
+	const uint32_t edge = std::min(center, LAND_VALUE_BASE.base());
+	const uint32_t decrease = center - edge;
+
+	for (uint32_t band = 0; band < LAND_VALUE_DISTANCE_BAND_COUNT; ++band) {
+		const uint32_t band_decrease = static_cast<uint32_t>(static_cast<uint64_t>(decrease) * band / (LAND_VALUE_DISTANCE_BAND_COUNT - 1));
+		scores[band] = LandValueScore{center - band_decrease};
+	}
+
+	return scores;
+}
+
+/** Calculate a bounded influence radius from the largest existing town-zone radius. */
+uint32_t CalculateLandValueMaxDistanceSquared(uint32_t town_radius_squared)
+{
+	static constexpr uint32_t MIN_DISTANCE_SQUARED = 64;
+	static constexpr uint32_t RADIUS_SCALE_SQUARED = 16;
+
+	const uint64_t scaled = static_cast<uint64_t>(town_radius_squared) * RADIUS_SCALE_SQUARED;
+	return std::max<uint32_t>(MIN_DISTANCE_SQUARED, static_cast<uint32_t>(std::min<uint64_t>(scaled, std::numeric_limits<uint32_t>::max())));
+}
+
+/**
  * Map a squared distance to one of the cached distance bands.
  * Distances at or beyond the maximum are assigned to the final band.
  */
@@ -77,10 +136,17 @@ uint8_t GetLandValueDistanceBand(uint32_t distance_squared, uint32_t max_distanc
 	return static_cast<uint8_t>(static_cast<uint64_t>(distance_squared) * (LAND_VALUE_DISTANCE_BAND_COUNT - 1) / max_distance_squared);
 }
 
-/** Return the distance-adjusted score for a tile. */
-LandValueScore GetLandValueScore(TileIndex)
+/** Return the distance-adjusted score for a tile using the nearest town's cached curve. */
+LandValueScore GetLandValueScore(TileIndex tile)
 {
-	return LAND_VALUE_BASE;
+	if (!IsValidTile(tile)) return LAND_VALUE_BASE;
+
+	const Town *town = CalcClosestTownFromTile(tile, UINT_MAX);
+	if (town == nullptr) return LAND_VALUE_BASE;
+
+	const uint32_t distance_squared = DistanceSquare(tile, town->xy);
+	const uint8_t band = GetLandValueDistanceBand(distance_squared, town->cache.land_value.max_distance_squared);
+	return town->cache.land_value.distance_score[band];
 }
 
 /** Return the combined land-value modifier for a tile. */
@@ -115,4 +181,60 @@ void InitializeLoadedTownLandValues(bool has_saved_land_value)
 			InitializeTownLandValue(town);
 		}
 	}
+
+	RebuildAllLandValueCaches();
+}
+
+/** Rebuild one town's derived land-value distance cache without changing its persistent score. */
+void RebuildLandValueCache(Town *town)
+{
+	assert(town != nullptr);
+
+	const uint32_t town_radius_squared = *std::max_element(
+			std::begin(town->cache.squared_town_zone_radius), std::end(town->cache.squared_town_zone_radius));
+	LandValueCache &cache = town->cache.land_value;
+	cache.center_score = ClampLandValueScore(town->land_value_score);
+	cache.distance_score = BuildLandValueDistanceScores(cache.center_score);
+	cache.max_distance_squared = CalculateLandValueMaxDistanceSquared(town_radius_squared);
+}
+
+/** Assign deterministic one-based ranks by descending score and ascending TownID. */
+static void UpdateLandValueRanks()
+{
+	std::vector<Town *> towns;
+	for (Town *town : Town::Iterate()) towns.push_back(town);
+
+	std::sort(std::begin(towns), std::end(towns), [](const Town *a, const Town *b) {
+		if (a->land_value_score != b->land_value_score) return a->land_value_score > b->land_value_score;
+		return a->index < b->index;
+	});
+
+	uint32_t rank = 1;
+	for (Town *town : towns) town->cache.land_value.rank = rank++;
+}
+
+/** Rebuild land-value caches for every town. */
+void RebuildAllLandValueCaches()
+{
+	for (Town *town : Town::Iterate()) {
+		RebuildLandValueCache(town);
+	}
+	UpdateLandValueRanks();
+}
+
+/** Update persistent scores once per economy month, then rebuild derived caches and ranks. */
+void LandValueMonthlyLoop()
+{
+	for (Town *town : Town::Iterate()) {
+		const LandValueScore old_score = ClampLandValueScore(town->land_value_score);
+		const LandValueScore target_score = CalculateLandValueTargetScore(
+				town->cache.population, town->cache.num_houses, town->larger_town);
+		const LandValueScore new_score = SmoothLandValueScore(old_score, target_score, LAND_VALUE_MONTHLY_SMOOTHING);
+
+		town->land_value_score = new_score.base();
+		town->cache.land_value.monthly_change = static_cast<int32_t>(new_score.base()) - static_cast<int32_t>(old_score.base());
+		RebuildLandValueCache(town);
+	}
+
+	UpdateLandValueRanks();
 }

@@ -12,6 +12,8 @@
 
 #include "core/strong_typedef_type.hpp"
 
+#include <array>
+
 /** A land-value score, where 100 represents the base land value. */
 struct LandValueScoreTag : public StrongType::TypedefTraits<uint32_t, StrongType::Compare> {};
 using LandValueScore = StrongType::Typedef<LandValueScoreTag>;
@@ -29,5 +31,21 @@ static constexpr LandValueModifier LAND_VALUE_MODIFIER_BASE{10000}; ///< Neutral
 static constexpr LandValueModifier LAND_VALUE_MODIFIER_MAX{40000};  ///< Maximum valid modifier (400%).
 
 static constexpr uint8_t LAND_VALUE_DISTANCE_BAND_COUNT = 64; ///< Number of cached distance bands.
+static constexpr uint8_t LAND_VALUE_MONTHLY_SMOOTHING = 25;    ///< Percentage moved towards the target each economy month.
+
+using LandValueDistanceScores = std::array<LandValueScore, LAND_VALUE_DISTANCE_BAND_COUNT>;
+
+/** In-memory derived land-value data for a town. */
+struct LandValueCache {
+	LandValueDistanceScores distance_score = [] {
+		LandValueDistanceScores scores{};
+		scores.fill(LAND_VALUE_BASE);
+		return scores;
+	}();
+	LandValueScore center_score = LAND_VALUE_BASE;
+	uint32_t rank = 0;
+	int32_t monthly_change = 0;
+	uint32_t max_distance_squared = 0;
+};
 
 #endif /* LAND_VALUE_TYPE_H */

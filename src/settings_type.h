@@ -862,6 +862,13 @@ struct EconomySettings {
 	bool     spawn_primary_industry_only;    ///< only spawn primary industried
 	int8_t   town_growth_rate;               ///< town growth rate
 	uint8_t  town_growth_cargo_transported;  ///< percentage of town growth rate which depends on proportion of transported cargo in the last month
+	bool     land_value_enabled;             ///< enable the land-value system
+	uint8_t  land_value_smoothing_percent;   ///< percentage moved towards the target land value each economy month
+	uint16_t land_value_distance_scale;      ///< percentage scale applied to town land-value influence distances
+	uint16_t land_value_purchase_percent;    ///< reserved percentage scale for land-purchase costs
+	uint16_t land_value_infrastructure_percent; ///< reserved percentage scale for infrastructure costs
+	uint8_t  land_value_growth_percent;      ///< reserved percentage scale for town growth
+	uint16_t land_value_density_percent;     ///< reserved percentage scale for house density
 	bool     town_zone_calc_mode;            ///< calc mode for town zones
 	uint16_t town_zone_0_mult;               ///< multiplier for the size of town zone 0
 	uint16_t town_zone_1_mult;               ///< multiplier for the size of town zone 1

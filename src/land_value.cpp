@@ -11,7 +11,9 @@
 
 #include "land_value.h"
 #include "map_func.h"
+#include "settings_type.h"
 #include "town.h"
+#include "window_func.h"
 
 #include "safeguards.h"
 
@@ -114,14 +116,19 @@ LandValueDistanceScores BuildLandValueDistanceScores(LandValueScore center_score
 	return scores;
 }
 
-/** Calculate a bounded influence radius from the largest existing town-zone radius. */
-uint32_t CalculateLandValueMaxDistanceSquared(uint32_t town_radius_squared)
+/** Calculate a bounded influence radius from the largest existing town-zone radius and a percentage distance scale. */
+uint32_t CalculateLandValueMaxDistanceSquared(uint32_t town_radius_squared, uint16_t distance_scale_percent)
 {
 	static constexpr uint32_t MIN_DISTANCE_SQUARED = 64;
 	static constexpr uint32_t RADIUS_SCALE_SQUARED = 16;
+	static constexpr uint32_t PERCENT_SQUARED = 100 * 100;
 
-	const uint64_t scaled = static_cast<uint64_t>(town_radius_squared) * RADIUS_SCALE_SQUARED;
-	return std::max<uint32_t>(MIN_DISTANCE_SQUARED, static_cast<uint32_t>(std::min<uint64_t>(scaled, std::numeric_limits<uint32_t>::max())));
+	const uint64_t base_distance_squared = std::max<uint64_t>(
+			MIN_DISTANCE_SQUARED,
+			std::min<uint64_t>(static_cast<uint64_t>(town_radius_squared) * RADIUS_SCALE_SQUARED, std::numeric_limits<uint32_t>::max()));
+	const uint64_t distance_scale = std::max<uint32_t>(distance_scale_percent, 1);
+	const uint64_t scaled_distance_squared = base_distance_squared * distance_scale * distance_scale / PERCENT_SQUARED;
+	return static_cast<uint32_t>(std::clamp<uint64_t>(scaled_distance_squared, 1, std::numeric_limits<uint32_t>::max()));
 }
 
 /**
@@ -137,16 +144,49 @@ uint8_t GetLandValueDistanceBand(uint32_t distance_squared, uint32_t max_distanc
 }
 
 /** Return the distance-adjusted score for a tile using the nearest town's cached curve. */
-LandValueScore GetLandValueScore(TileIndex tile)
+bool IsLandValueEnabled()
 {
-	if (!IsValidTile(tile)) return LAND_VALUE_BASE;
+	return _settings_game.economy.land_value_enabled;
+}
+
+/** Convert an untrusted numeric tile index into a valid map tile. */
+std::optional<TileIndex> ResolveLandValueTileIndex(uint64_t raw_tile)
+{
+	if (raw_tile > std::numeric_limits<uint32_t>::max()) return std::nullopt;
+	const TileIndex tile{static_cast<uint32_t>(raw_tile)};
+	if (!IsValidTile(tile)) return std::nullopt;
+	return tile;
+}
+
+/** Return a complete, internally consistent, read-only land-value query result. */
+LandValueQueryResult GetLandValueQueryResult(TileIndex tile)
+{
+	LandValueQueryResult result{};
+	result.enabled = IsLandValueEnabled();
+	if (!IsValidTile(tile)) return result;
 
 	const Town *town = CalcClosestTownFromTile(tile, UINT_MAX);
-	if (town == nullptr) return LAND_VALUE_BASE;
+	if (town == nullptr) return result;
 
-	const uint32_t distance_squared = DistanceSquare(tile, town->xy);
-	const uint8_t band = GetLandValueDistanceBand(distance_squared, town->cache.land_value.max_distance_squared);
-	return town->cache.land_value.distance_score[band];
+	const LandValueCache &cache = town->cache.land_value;
+	result.town_id = town->index;
+	result.town_score = ClampLandValueScore(town->land_value_score);
+	result.center_score = cache.center_score;
+	result.max_distance_squared = cache.max_distance_squared;
+	result.distance_squared = DistanceSquare(tile, town->xy);
+	result.distance_band = GetLandValueDistanceBand(result.distance_squared, result.max_distance_squared);
+	result.distance_score = result.enabled ? cache.distance_score[result.distance_band] : LAND_VALUE_BASE;
+	result.modifier = GetLandValueModifier(tile);
+	result.final_score = CombineLandValueScoreAndModifier(result.distance_score, result.modifier);
+	result.rank = cache.rank;
+	result.monthly_change = cache.monthly_change;
+	return result;
+}
+
+/** Return the distance-adjusted score for a tile using the nearest town's cached curve. */
+LandValueScore GetLandValueScore(TileIndex tile)
+{
+	return GetLandValueQueryResult(tile).distance_score;
 }
 
 /** Return the combined land-value modifier for a tile. */
@@ -195,7 +235,8 @@ void RebuildLandValueCache(Town *town)
 	LandValueCache &cache = town->cache.land_value;
 	cache.center_score = ClampLandValueScore(town->land_value_score);
 	cache.distance_score = BuildLandValueDistanceScores(cache.center_score);
-	cache.max_distance_squared = CalculateLandValueMaxDistanceSquared(town_radius_squared);
+	cache.max_distance_squared = CalculateLandValueMaxDistanceSquared(
+			town_radius_squared, _settings_game.economy.land_value_distance_scale);
 }
 
 /** Assign deterministic one-based ranks by descending score and ascending TownID. */
@@ -225,11 +266,14 @@ void RebuildAllLandValueCaches()
 /** Update persistent scores once per economy month, then rebuild derived caches and ranks. */
 void LandValueMonthlyLoop()
 {
+	if (!IsLandValueEnabled()) return;
+
 	for (Town *town : Town::Iterate()) {
 		const LandValueScore old_score = ClampLandValueScore(town->land_value_score);
 		const LandValueScore target_score = CalculateLandValueTargetScore(
 				town->cache.population, town->cache.num_houses, town->larger_town);
-		const LandValueScore new_score = SmoothLandValueScore(old_score, target_score, LAND_VALUE_MONTHLY_SMOOTHING);
+		const LandValueScore new_score = SmoothLandValueScore(
+				old_score, target_score, _settings_game.economy.land_value_smoothing_percent);
 
 		town->land_value_score = new_score.base();
 		town->cache.land_value.monthly_change = static_cast<int32_t>(new_score.base()) - static_cast<int32_t>(old_score.base());
@@ -237,4 +281,6 @@ void LandValueMonthlyLoop()
 	}
 
 	UpdateLandValueRanks();
+	InvalidateWindowClassesData(WindowClass::LandInfo);
+	InvalidateWindowClassesData(WindowClass::TownView);
 }

@@ -56,6 +56,7 @@
 #include "economy_func.h"
 #include "town.h"
 #include "industry.h"
+#include "land_value.h"
 #include "string_func_extra.h"
 #include "linkgraph/linkgraphjob.h"
 #include "base_media_base.h"
@@ -3637,6 +3638,58 @@ static bool ConDumpTile(std::span<std::string_view> argv)
 	return false;
 }
 
+/** Dump the read-only land-value state of a tile. */
+static bool ConDumpLandValue(std::span<std::string_view> argv)
+{
+	if (argv.empty()) {
+		IConsolePrint(CC_HELP, "Dump the land-value state of a given tile.");
+		IConsolePrint(CC_HELP, "Usage: 'dump_land_value <tile>'");
+		IConsolePrint(CC_HELP, "The tile number can be decimal or hexadecimal.");
+		return true;
+	}
+
+	if (argv.size() != 2) return false;
+
+	const auto raw_tile = ParseInteger<uint64_t>(argv[1], 0);
+	if (!raw_tile.has_value()) {
+		IConsolePrint(CC_ERROR, "Invalid tile number.");
+		return true;
+	}
+
+	const auto tile = ResolveLandValueTileIndex(*raw_tile);
+	if (!tile.has_value()) {
+		IConsolePrint(CC_ERROR, "Tile does not exist.");
+		return true;
+	}
+
+	const LandValueQueryResult result = GetLandValueQueryResult(*tile);
+	IConsolePrint(CC_DEFAULT, "TileIndex: {}", tile->base());
+	IConsolePrint(CC_DEFAULT, "enabled: {}", result.enabled ? "true" : "false");
+	IConsolePrint(CC_DEFAULT, "smoothing_percent: {}", _settings_game.economy.land_value_smoothing_percent);
+	IConsolePrint(CC_DEFAULT, "distance_scale: {}", _settings_game.economy.land_value_distance_scale);
+
+	const Town *town = Town::GetIfValid(result.town_id);
+	if (town == nullptr) {
+		IConsolePrint(CC_DEFAULT, "Nearest TownID: none");
+		IConsolePrint(CC_DEFAULT, "Nearest town name: none");
+	} else {
+		IConsolePrint(CC_DEFAULT, "Nearest TownID: {}", result.town_id.base());
+		IConsolePrint(CC_DEFAULT, "Nearest town name: {}", GetString(STR_TOWN_NAME, result.town_id));
+	}
+
+	IConsolePrint(CC_DEFAULT, "Town persistent score: {}", result.town_score.base());
+	IConsolePrint(CC_DEFAULT, "center_score: {}", result.center_score.base());
+	IConsolePrint(CC_DEFAULT, "max_distance_squared: {}", result.max_distance_squared);
+	IConsolePrint(CC_DEFAULT, "DistanceSquare: {}", result.distance_squared);
+	IConsolePrint(CC_DEFAULT, "distance band: {}", result.distance_band);
+	IConsolePrint(CC_DEFAULT, "distance score: {}", result.distance_score.base());
+	IConsolePrint(CC_DEFAULT, "modifier: {}", result.modifier.base());
+	IConsolePrint(CC_DEFAULT, "final score: {}", result.final_score.base());
+	IConsolePrint(CC_DEFAULT, "rank: {}", result.rank);
+	IConsolePrint(CC_DEFAULT, "monthly_change: {}", result.monthly_change);
+	return true;
+}
+
 static bool ConDumpGrfCargoTables(std::span<std::string_view> argv)
 {
 	if (argv.empty()) {
@@ -4627,6 +4680,7 @@ void IConsoleStdLibRegister()
 	IConsole::CmdRegister("dump_cargo_types",        ConDumpCargoTypes,   nullptr, true);
 	IConsole::CmdRegister("dump_vehicle",            ConDumpVehicle,      nullptr, true);
 	IConsole::CmdRegister("dump_tile",               ConDumpTile,         nullptr, true);
+	IConsole::CmdRegister("dump_land_value",         ConDumpLandValue,    nullptr, true);
 	IConsole::CmdRegister("dump_grf_cargo_tables",   ConDumpGrfCargoTables, nullptr, true);
 	IConsole::CmdRegister("dump_signal_styles",      ConDumpSignalStyles, nullptr, true);
 	IConsole::CmdRegister("dump_sprite_cache_stats", ConSpriteCacheStats, nullptr, true);

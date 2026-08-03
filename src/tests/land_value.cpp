@@ -14,6 +14,8 @@
 #include "../industry.h"
 #include "../land_value.h"
 #include "../map_func.h"
+#include "../settings_internal.h"
+#include "../settings_type.h"
 #include "../town.h"
 #include "../sl/extended_ver_sl.h"
 
@@ -21,6 +23,13 @@
 
 static void ResetLandValueTestWorld()
 {
+	_settings_game.economy.land_value_enabled = true;
+	_settings_game.economy.land_value_smoothing_percent = 25;
+	_settings_game.economy.land_value_distance_scale = 100;
+	_settings_game.economy.land_value_purchase_percent = 100;
+	_settings_game.economy.land_value_infrastructure_percent = 25;
+	_settings_game.economy.land_value_growth_percent = 20;
+	_settings_game.economy.land_value_density_percent = 50;
 	_town_pool.CleanPool();
 	RebuildTownKdtree();
 	AllocateMap(64, 64);
@@ -40,7 +49,44 @@ TEST_CASE("Land value scales remain distinct")
 	CHECK(LAND_VALUE_MAX.base() == 10000);
 	CHECK(LAND_VALUE_MODIFIER_BASE.base() == 10000);
 	CHECK(LAND_VALUE_MODIFIER_MAX.base() == 40000);
-	CHECK(LAND_VALUE_MONTHLY_SMOOTHING == 25);
+}
+
+TEST_CASE("Land value game settings use Patch PATX persistence and network synchronization")
+{
+	struct ExpectedSetting {
+		const char *name;
+		int32_t def;
+		int32_t min;
+		uint32_t max;
+		bool has_post_callback;
+	};
+
+	static constexpr ExpectedSetting expected[] = {
+		{ "economy.land_value_enabled", 1, 0, 1, true },
+		{ "economy.land_value_smoothing_percent", 25, 0, 100, true },
+		{ "economy.land_value_distance_scale", 100, 25, 400, true },
+		{ "economy.land_value_purchase_percent", 100, 0, 400, false },
+		{ "economy.land_value_infrastructure_percent", 25, 0, 400, false },
+		{ "economy.land_value_growth_percent", 20, 0, 100, false },
+		{ "economy.land_value_density_percent", 50, 0, 200, false },
+	};
+
+	for (const ExpectedSetting &item : expected) {
+		const SettingDesc *setting = GetSettingFromName(item.name);
+		REQUIRE(setting != nullptr);
+		REQUIRE(setting->IsIntSetting());
+		const IntSettingDesc *integer = setting->AsIntSetting();
+		CHECK(integer->def == item.def);
+		CHECK(integer->min == item.min);
+		CHECK(integer->max == item.max);
+		CHECK(setting->flags.Test(SettingFlag::Patch));
+		CHECK_FALSE(setting->flags.Test(SettingFlag::NoNetworkSync));
+		CHECK_FALSE(setting->flags.Test(SettingFlag::NotInSave));
+		CHECK(setting->GetType() == ST_GAME);
+		REQUIRE(setting->patx_name != nullptr);
+		CHECK(std::string_view{setting->patx_name}.starts_with("land_value."));
+		CHECK((integer->post_callback != nullptr) == item.has_post_callback);
+	}
 }
 
 TEST_CASE("Land value inputs are clamped")
@@ -150,6 +196,11 @@ TEST_CASE("Land value distance cache is monotonic and bounded")
 	CHECK(CalculateLandValueMaxDistanceSquared(4) == 64);
 	CHECK(CalculateLandValueMaxDistanceSquared(100) == 1600);
 	CHECK(CalculateLandValueMaxDistanceSquared(std::numeric_limits<uint32_t>::max()) == std::numeric_limits<uint32_t>::max());
+	CHECK(CalculateLandValueMaxDistanceSquared(100, 25) == 100);
+	CHECK(CalculateLandValueMaxDistanceSquared(100, 100) == 1600);
+	CHECK(CalculateLandValueMaxDistanceSquared(100, 400) == 25600);
+	CHECK(CalculateLandValueMaxDistanceSquared(100, 0) == 1);
+	CHECK(CalculateLandValueMaxDistanceSquared(std::numeric_limits<uint32_t>::max(), 400) == std::numeric_limits<uint32_t>::max());
 }
 
 TEST_CASE("Land value tile queries use the nearest town cache without rebuilding statistics")
@@ -167,6 +218,14 @@ TEST_CASE("Land value tile queries use the nearest town cache without rebuilding
 	town->cache.num_houses = 123;
 	RebuildLandValueCache(town);
 
+	const LandValueQueryResult centre_result = GetLandValueQueryResult(centre);
+	CHECK(centre_result.town_id == town->index);
+	CHECK(centre_result.town_score == LandValueScore{500});
+	CHECK(centre_result.center_score == town->cache.land_value.center_score);
+	CHECK(centre_result.distance_band == 0);
+	CHECK(centre_result.distance_score == town->cache.land_value.distance_score.front());
+	CHECK(centre_result.modifier == GetLandValueModifier(centre));
+	CHECK(centre_result.final_score == GetFinalLandValueScore(centre));
 	CHECK(GetLandValueScore(centre) == town->cache.land_value.distance_score.front());
 	CHECK(GetLandValueScore(centre) == LandValueScore{500});
 	CHECK(GetLandValueScore(far_tile) == town->cache.land_value.distance_score.back());
@@ -179,7 +238,12 @@ TEST_CASE("Land value tile queries use the nearest town cache without rebuilding
 	const size_t station_count = town->stations_near.size();
 	const size_t industry_count = town->industry_cache.size();
 	const LandValueCache cache = town->cache.land_value;
-	for (uint i = 0; i < 10000; ++i) CHECK(GetLandValueScore(far_tile) == LAND_VALUE_BASE);
+	for (uint i = 0; i < 10000; ++i) {
+		const LandValueQueryResult result = GetLandValueQueryResult(far_tile);
+		CHECK(result.distance_score == LAND_VALUE_BASE);
+		CHECK(result.distance_band == LAND_VALUE_DISTANCE_BAND_COUNT - 1);
+		CHECK(result.final_score == GetFinalLandValueScore(far_tile));
+	}
 
 	CHECK(town->cache.population == population);
 	CHECK(town->cache.num_houses == num_houses);
@@ -187,6 +251,113 @@ TEST_CASE("Land value tile queries use the nearest town cache without rebuilding
 	CHECK(town->industry_cache.size() == industry_count);
 	CHECK(town->cache.land_value.distance_score == cache.distance_score);
 	CHECK(town->cache.land_value.max_distance_squared == cache.max_distance_squared);
+
+	_town_pool.CleanPool();
+	RebuildTownKdtree();
+}
+
+TEST_CASE("Land value query is safe without a town and rejects invalid console tile indices")
+{
+	ResetLandValueTestWorld();
+	const LandValueQueryResult result = GetLandValueQueryResult(TileXY(5, 5));
+	CHECK(result.town_id == TownID::Invalid());
+	CHECK(result.town_score == LAND_VALUE_BASE);
+	CHECK(result.distance_score == LAND_VALUE_BASE);
+	CHECK(result.modifier == LAND_VALUE_MODIFIER_BASE);
+	CHECK(result.final_score == LAND_VALUE_BASE);
+	CHECK(result.rank == 0);
+	CHECK(result.monthly_change == 0);
+
+	CHECK(ResolveLandValueTileIndex(0).has_value());
+	CHECK(ResolveLandValueTileIndex(Map::Size() - 1).has_value());
+	CHECK_FALSE(ResolveLandValueTileIndex(Map::Size()).has_value());
+	CHECK_FALSE(ResolveLandValueTileIndex(std::numeric_limits<uint64_t>::max()).has_value());
+}
+
+TEST_CASE("Disabling land value makes queries neutral and preserves persistent state")
+{
+	ResetLandValueTestWorld();
+	const TileIndex centre = TileXY(10, 10);
+	Town *town = CreateLandValueTestTown(10, 10);
+	town->land_value_score = 500;
+	town->cache.population = 1000;
+	town->cache.num_houses = 100;
+	town->cache.squared_town_zone_radius = {100, 81, 49, 25, 16};
+	RebuildAllLandValueCaches();
+
+	const uint32_t persistent_score = town->land_value_score;
+	const LandValueCache enabled_cache = town->cache.land_value;
+	CHECK(GetLandValueScore(centre) == LandValueScore{500});
+
+	_settings_game.economy.land_value_enabled = false;
+	RebuildAllLandValueCaches();
+	const LandValueQueryResult disabled = GetLandValueQueryResult(centre);
+	CHECK_FALSE(disabled.enabled);
+	CHECK(disabled.town_id == town->index);
+	CHECK(disabled.town_score == LandValueScore{persistent_score});
+	CHECK(disabled.distance_score == LAND_VALUE_BASE);
+	CHECK(disabled.final_score == LAND_VALUE_BASE);
+	CHECK(town->land_value_score == persistent_score);
+	CHECK(town->cache.land_value.center_score == enabled_cache.center_score);
+	CHECK(town->cache.land_value.distance_score == enabled_cache.distance_score);
+
+	const LandValueCache before_month = town->cache.land_value;
+	LandValueMonthlyLoop();
+	CHECK(town->land_value_score == persistent_score);
+	CHECK(town->cache.land_value.center_score == before_month.center_score);
+	CHECK(town->cache.land_value.monthly_change == before_month.monthly_change);
+
+	_settings_game.economy.land_value_enabled = true;
+	CHECK(GetLandValueScore(centre) == LandValueScore{500});
+	_town_pool.CleanPool();
+	RebuildTownKdtree();
+}
+
+TEST_CASE("Land value settings control smoothing and cache distance without touching reserved gameplay")
+{
+	ResetLandValueTestWorld();
+	Town *town = CreateLandValueTestTown(10, 10);
+	town->cache.population = 10000;
+	town->cache.num_houses = 0;
+	town->cache.squared_town_zone_radius = {100, 81, 49, 25, 16};
+
+	_settings_game.economy.land_value_smoothing_percent = 0;
+	LandValueMonthlyLoop();
+	CHECK(town->land_value_score == 100);
+	CHECK(town->cache.land_value.monthly_change == 0);
+
+	_settings_game.economy.land_value_smoothing_percent = 25;
+	LandValueMonthlyLoop();
+	CHECK(town->land_value_score == 200);
+	CHECK(town->cache.land_value.monthly_change == 100);
+
+	town->land_value_score = 100;
+	_settings_game.economy.land_value_smoothing_percent = 100;
+	LandValueMonthlyLoop();
+	CHECK(town->land_value_score == 500);
+	CHECK(town->cache.land_value.monthly_change == 400);
+
+	const uint32_t persistent_score = town->land_value_score;
+	_settings_game.economy.land_value_distance_scale = 100;
+	RebuildLandValueCache(town);
+	CHECK(town->cache.land_value.max_distance_squared == 1600);
+	const IntSettingDesc *distance_setting = GetSettingFromName("economy.land_value_distance_scale")->AsIntSetting();
+	REQUIRE(distance_setting->post_callback != nullptr);
+	_settings_game.economy.land_value_distance_scale = 25;
+	distance_setting->post_callback(25);
+	CHECK(town->cache.land_value.max_distance_squared == 100);
+	CHECK(town->land_value_score == persistent_score);
+	_settings_game.economy.land_value_distance_scale = 400;
+	distance_setting->post_callback(400);
+	CHECK(town->cache.land_value.max_distance_squared == 25600);
+	CHECK(town->land_value_score == persistent_score);
+
+	_settings_game.economy.land_value_purchase_percent = 0;
+	_settings_game.economy.land_value_infrastructure_percent = 400;
+	_settings_game.economy.land_value_growth_percent = 100;
+	_settings_game.economy.land_value_density_percent = 200;
+	CHECK(CalculateLandValueTargetScore(10000, 0, false) == LandValueScore{500});
+	CHECK(GetLandValueModifier(town->xy) == LAND_VALUE_MODIFIER_BASE);
 
 	_town_pool.CleanPool();
 	RebuildTownKdtree();

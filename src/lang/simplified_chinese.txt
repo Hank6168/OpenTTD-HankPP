@@ -2202,12 +2202,28 @@ STR_CONFIG_SETTING_ENVIRONMENT                                  :环境
 STR_CONFIG_SETTING_ENVIRONMENT_TIME                             :时间
 STR_CONFIG_SETTING_ENVIRONMENT_AUTHORITIES                      :政府监管
 STR_CONFIG_SETTING_ENVIRONMENT_TOWNS                            :城镇
+STR_CONFIG_SETTING_LAND_VALUE                                   :地价
 STR_CONFIG_SETTING_ENVIRONMENT_INDUSTRIES                       :工业设施
 STR_CONFIG_SETTING_ENVIRONMENT_CARGODIST                        :货物分配
 STR_CONFIG_SETTING_ENVIRONMENT_TREES                            :树木
 STR_CONFIG_SETTING_AI                                           :竞争
 STR_CONFIG_SETTING_AI_NPC                                       :AI 玩家
 STR_CONFIG_SETTING_NETWORK                                      :网络
+
+STR_CONFIG_SETTING_LAND_VALUE_ENABLED                           :启用地价系统
+STR_CONFIG_SETTING_LAND_VALUE_ENABLED_HELPTEXT                  :启用每月城镇地价更新和按距离衰减的地块查询。关闭后将保留各城镇已经保存的地价分数
+STR_CONFIG_SETTING_LAND_VALUE_SMOOTHING                         :地价月度平滑比例
+STR_CONFIG_SETTING_LAND_VALUE_SMOOTHING_HELPTEXT                :每个经济月将当前城镇分数向目标分数推进的比例。0%表示保持当前分数，100%表示当月直接采用目标分数
+STR_CONFIG_SETTING_LAND_VALUE_DISTANCE_SCALE                    :地价距离尺度
+STR_CONFIG_SETTING_LAND_VALUE_DISTANCE_SCALE_HELPTEXT           :缩放各城镇的地价影响半径。100%保持Patch 003的原始距离
+STR_CONFIG_SETTING_LAND_VALUE_PURCHASE_PERCENT                  :购地地价比例
+STR_CONFIG_SETTING_LAND_VALUE_PURCHASE_PERCENT_HELPTEXT         :为购地费用预留的地价比例。本版本仅保存该设置，不影响实际费用
+STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT            :基础设施地价比例
+STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT_HELPTEXT   :为基础设施建造费用预留的地价比例。本版本仅保存该设置，不影响实际费用
+STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT                    :城镇发展地价比例
+STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT_HELPTEXT           :为地价影响城镇发展预留的比例。本版本仅保存该设置，不影响城镇发展
+STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT                   :房屋密度地价比例
+STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT_HELPTEXT          :为地价影响房屋密度预留的比例。本版本仅保存该设置，不影响房屋选择
 
 STR_CONFIG_SETTING_REVERSE_AT_SIGNALS                           :在信号灯前掉头：{STRING}
 STR_CONFIG_SETTING_REVERSE_AT_SIGNALS_HELPTEXT                  :当列车在信号灯前长时间等待时，允许掉头
@@ -3183,6 +3199,16 @@ STR_LAND_AREA_INFORMATION_TRAM_OWNER                            :{BLACK}有轨�
 STR_LAND_AREA_INFORMATION_RAIL_OWNER                            :{BLACK}铁路归属：{LTBLUE}{STRING}
 STR_LAND_AREA_INFORMATION_LOCAL_AUTHORITY                       :{BLACK}地方政府：{LTBLUE}{STRING}
 STR_LAND_AREA_INFORMATION_LOCAL_AUTHORITY_NONE                  :没有
+STR_LAND_VALUE_SYSTEM_ENABLED                                   :已启用
+STR_LAND_VALUE_SYSTEM_DISABLED                                  :已禁用
+STR_LAND_AREA_INFORMATION_LAND_VALUE_STATUS                     :{BLACK}地价系统：{LTBLUE}{STRING}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN                       :{BLACK}最近的地价城镇：{LTBLUE}{STRING}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN_NONE                  :{BLACK}最近的地价城镇：{LTBLUE}没有
+STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN_SCORE                 :{BLACK}城镇地价分数：{LTBLUE}{NUM}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_DISTANCE_BAND              :{BLACK}地价距离档位：{LTBLUE}{NUM}/{NUM}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_DISTANCE_SCORE             :{BLACK}距离衰减后分数：{LTBLUE}{NUM}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_MODIFIER                   :{BLACK}地价修正值：{LTBLUE}{NUM}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_FINAL_SCORE                :{BLACK}最终地价分数：{LTBLUE}{NUM}
 STR_LAND_AREA_INFORMATION_LANDINFO_COORDS                       :{BLACK}坐标：{LTBLUE}{NUM} × {NUM} × {NUM}
 STR_LAND_AREA_INFORMATION_LANDINFO_INDEX                        :{BLACK}格编号：{LTBLUE}{NUM}（{HEX}）
 STR_LAND_AREA_INFORMATION_BUILD_DATE                            :{BLACK}建造/翻新于：{LTBLUE}{DATE_LONG}
@@ -3745,6 +3771,14 @@ STR_TOWN_POPULATION                                             :{BLACK}地图�
 STR_TOWN_VIEW_TOWN_CAPTION                                      :{WHITE}{TOWN}
 STR_TOWN_VIEW_CITY_CAPTION                                      :{WHITE}{TOWN}（都市）
 STR_TOWN_VIEW_POPULATION_HOUSES                                 :{BLACK}人口：{ORANGE}{COMMA}{BLACK}　房屋：{ORANGE}{COMMA}
+STR_TOWN_VIEW_LAND_VALUE_STATUS                                 :{BLACK}地价系统：{ORANGE}{STRING}
+STR_TOWN_VIEW_LAND_VALUE_SCORE                                  :{BLACK}地价分数：{ORANGE}{NUM}
+STR_TOWN_VIEW_LAND_VALUE_RANK                                   :{BLACK}地价排名：{ORANGE}{NUM}
+STR_TOWN_VIEW_LAND_VALUE_RANK_UNRANKED                          :{BLACK}地价排名：{ORANGE}尚未排名
+STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_POSITIVE                :{BLACK}地价月度变化：{GREEN}+{NUM}
+STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_NEGATIVE                :{BLACK}地价月度变化：{RED}{NUM}
+STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_ZERO                    :{BLACK}地价月度变化：{ORANGE}0
+STR_TOWN_VIEW_LAND_VALUE_CENTER_SCORE                           :{BLACK}中心地价分数：{ORANGE}{NUM}
 STR_TOWN_VIEW_CARGO_LAST_MONTH_MAX                              :{BLACK}上月产出的{CARGO_LIST}：{ORANGE}{COMMA}{BLACK}　最大产量：{ORANGE}{COMMA}
 STR_TOWN_VIEW_CARGO_LAST_MINUTE_MAX                             :{BLACK}上分钟产出的{CARGO_LIST}：{ORANGE}{COMMA}{BLACK}　最大产量：{ORANGE}{COMMA}
 STR_TOWN_VIEW_CARGO_FOR_TOWNGROWTH                              :{BLACK}城镇发展所必需的货物：

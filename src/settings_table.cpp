@@ -25,6 +25,7 @@
 #include "graph_gui.h"
 #include "gui.h"
 #include "infrastructure_func.h"
+#include "land_value.h"
 #include "news_func.h"
 #include "order_func.h"
 #include "plans_func.h"
@@ -1253,6 +1254,23 @@ static void TownZoneModeChanged(int32_t new_value)
 static void TownZoneCustomValueChanged(int32_t new_value)
 {
 	if (_settings_game.economy.town_zone_calc_mode) UpdateTownRadii();
+}
+
+static void InvalidateLandValueWindows()
+{
+	InvalidateWindowClassesData(WindowClass::LandInfo);
+	InvalidateWindowClassesData(WindowClass::TownView);
+}
+
+static void LandValueCacheSettingChanged([[maybe_unused]] int32_t new_value)
+{
+	RebuildAllLandValueCaches();
+	InvalidateLandValueWindows();
+}
+
+static void LandValueDisplaySettingChanged([[maybe_unused]] int32_t new_value)
+{
+	InvalidateLandValueWindows();
 }
 
 static bool CheckTTDPatchSettingFlag(uint flag)

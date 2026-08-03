@@ -12,6 +12,7 @@
 #include "debug_settings.h"
 #include "landscape.h"
 #include "landscape_cmd.h"
+#include "land_value.h"
 #include "error.h"
 #include "gui.h"
 #include "gfx_layout.h"
@@ -214,6 +215,22 @@ public:
 			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LOCAL_AUTHORITY, STR_TOWN_NAME, t->index));
 		}
 
+		/* Land value. This is a read-only query of already-derived state. */
+		const LandValueQueryResult land_value = GetLandValueQueryResult(this->tile);
+		this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_STATUS,
+				land_value.enabled ? STR_LAND_VALUE_SYSTEM_ENABLED : STR_LAND_VALUE_SYSTEM_DISABLED));
+		if (land_value.town_id == TownID::Invalid()) {
+			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN_NONE));
+		} else {
+			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN, STR_TOWN_NAME, land_value.town_id));
+			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN_SCORE, land_value.town_score.base()));
+			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_DISTANCE_BAND,
+					land_value.distance_band, LAND_VALUE_DISTANCE_BAND_COUNT - 1));
+			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_DISTANCE_SCORE, land_value.distance_score.base()));
+			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_MODIFIER, land_value.modifier.base()));
+			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_FINAL_SCORE, land_value.final_score.base()));
+		}
+
 		/* Build date */
 		if (td.build_date != CalTime::INVALID_DATE) {
 			this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_BUILD_DATE, td.build_date));
@@ -342,8 +359,8 @@ public:
 	{
 		if (!gui_scope) return;
 
-		/* ReInit, "debug" sprite might have changed */
-		if (data == 1) this->ReInit();
+		/* Rebuild cached display strings and dimensions; the "debug" sprite might also have changed. */
+		this->ReInit();
 	}
 };
 

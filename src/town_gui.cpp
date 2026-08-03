@@ -29,6 +29,7 @@
 #include "sortlist_type.h"
 #include "road_cmd.h"
 #include "landscape.h"
+#include "land_value.h"
 #include "querystring_gui.h"
 #include "window_func.h"
 #include "townname_func.h"
@@ -607,6 +608,29 @@ public:
 		DrawString(tr, GetString(STR_TOWN_VIEW_POPULATION_HOUSES, this->town->cache.population, this->town->cache.num_houses));
 		tr.top += GetCharacterHeight(FontSize::Normal);
 
+		const LandValueCache &land_value = this->town->cache.land_value;
+		DrawString(tr, GetString(STR_TOWN_VIEW_LAND_VALUE_STATUS,
+				IsLandValueEnabled() ? STR_LAND_VALUE_SYSTEM_ENABLED : STR_LAND_VALUE_SYSTEM_DISABLED));
+		tr.top += GetCharacterHeight(FontSize::Normal);
+		DrawString(tr, GetString(STR_TOWN_VIEW_LAND_VALUE_SCORE, this->town->land_value_score));
+		tr.top += GetCharacterHeight(FontSize::Normal);
+		if (land_value.rank == 0) {
+			DrawString(tr, STR_TOWN_VIEW_LAND_VALUE_RANK_UNRANKED);
+		} else {
+			DrawString(tr, GetString(STR_TOWN_VIEW_LAND_VALUE_RANK, land_value.rank));
+		}
+		tr.top += GetCharacterHeight(FontSize::Normal);
+		if (land_value.monthly_change > 0) {
+			DrawString(tr, GetString(STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_POSITIVE, land_value.monthly_change));
+		} else if (land_value.monthly_change < 0) {
+			DrawString(tr, GetString(STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_NEGATIVE, static_cast<int64_t>(land_value.monthly_change)));
+		} else {
+			DrawString(tr, STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_ZERO);
+		}
+		tr.top += GetCharacterHeight(FontSize::Normal);
+		DrawString(tr, GetString(STR_TOWN_VIEW_LAND_VALUE_CENTER_SCORE, land_value.center_score.base()));
+		tr.top += GetCharacterHeight(FontSize::Normal);
+
 		StringID str_last_period;
 		if (EconTime::UsingWallclockUnits()) {
 			str_last_period = ReplaceWallclockMinutesUnit() ? STR_TOWN_VIEW_CARGO_LAST_PRODUCTION_INTERVAL_MAX : STR_TOWN_VIEW_CARGO_LAST_MINUTE_MAX;
@@ -753,7 +777,7 @@ public:
 	 */
 	uint GetDesiredInfoHeight(int width) const
 	{
-		uint aimed_height = static_cast<uint>(1 + CountBits(CargoSpec::town_production_cargo_mask[TownProductionEffect::Passengers] | CargoSpec::town_production_cargo_mask[TownProductionEffect::Mail])) * GetCharacterHeight(FontSize::Normal);
+		uint aimed_height = static_cast<uint>(6 + CountBits(CargoSpec::town_production_cargo_mask[TownProductionEffect::Passengers] | CargoSpec::town_production_cargo_mask[TownProductionEffect::Mail])) * GetCharacterHeight(FontSize::Normal);
 
 		bool first = true;
 		for (TownAcceptanceEffect i = TownAcceptanceEffect::Begin; i < TownAcceptanceEffect::End; i++) {

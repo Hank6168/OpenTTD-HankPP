@@ -2213,12 +2213,28 @@ STR_CONFIG_SETTING_ENVIRONMENT                                  :Environment
 STR_CONFIG_SETTING_ENVIRONMENT_TIME                             :Time
 STR_CONFIG_SETTING_ENVIRONMENT_AUTHORITIES                      :Authorities
 STR_CONFIG_SETTING_ENVIRONMENT_TOWNS                            :Towns
+STR_CONFIG_SETTING_LAND_VALUE                                   :Land value
 STR_CONFIG_SETTING_ENVIRONMENT_INDUSTRIES                       :Industries
 STR_CONFIG_SETTING_ENVIRONMENT_CARGODIST                        :Cargo distribution
 STR_CONFIG_SETTING_ENVIRONMENT_TREES                            :Trees
 STR_CONFIG_SETTING_AI                                           :Competitors
 STR_CONFIG_SETTING_AI_NPC                                       :Computer players
 STR_CONFIG_SETTING_NETWORK                                      :Network
+
+STR_CONFIG_SETTING_LAND_VALUE_ENABLED                           :Enable land value system
+STR_CONFIG_SETTING_LAND_VALUE_ENABLED_HELPTEXT                  :Enable monthly town land-value updates and distance-adjusted tile queries. Disabling this preserves each town's stored score
+STR_CONFIG_SETTING_LAND_VALUE_SMOOTHING                         :Monthly land value smoothing
+STR_CONFIG_SETTING_LAND_VALUE_SMOOTHING_HELPTEXT                :Percentage of the difference between the current and target town score applied each economy month. 0% keeps the current score; 100% applies the target immediately
+STR_CONFIG_SETTING_LAND_VALUE_DISTANCE_SCALE                    :Land value distance scale
+STR_CONFIG_SETTING_LAND_VALUE_DISTANCE_SCALE_HELPTEXT           :Scale the radius of each town's land-value influence. 100% keeps the original Patch 003 distance
+STR_CONFIG_SETTING_LAND_VALUE_PURCHASE_PERCENT                  :Land purchase percentage
+STR_CONFIG_SETTING_LAND_VALUE_PURCHASE_PERCENT_HELPTEXT         :Reserved land-value percentage for land purchase costs. This setting is saved but does not affect costs in this version
+STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT            :Infrastructure percentage
+STR_CONFIG_SETTING_LAND_VALUE_INFRASTRUCTURE_PERCENT_HELPTEXT   :Reserved land-value percentage for infrastructure construction costs. This setting is saved but does not affect costs in this version
+STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT                    :Town growth percentage
+STR_CONFIG_SETTING_LAND_VALUE_GROWTH_PERCENT_HELPTEXT           :Reserved land-value influence on town growth. This setting is saved but does not affect town growth in this version
+STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT                   :House density percentage
+STR_CONFIG_SETTING_LAND_VALUE_DENSITY_PERCENT_HELPTEXT          :Reserved land-value influence on house density. This setting is saved but does not affect house selection in this version
 
 STR_CONFIG_SETTING_REVERSE_AT_SIGNALS                           :Automatic reversing at signals: {STRING2}
 STR_CONFIG_SETTING_REVERSE_AT_SIGNALS_HELPTEXT                  :Allow trains to reverse on a signal, if they waited there a long time
@@ -3196,6 +3212,16 @@ STR_LAND_AREA_INFORMATION_TRAM_OWNER                            :{BLACK}Tramway 
 STR_LAND_AREA_INFORMATION_RAIL_OWNER                            :{BLACK}Railway owner: {LTBLUE}{STRING1}
 STR_LAND_AREA_INFORMATION_LOCAL_AUTHORITY                       :{BLACK}Local authority: {LTBLUE}{STRING1}
 STR_LAND_AREA_INFORMATION_LOCAL_AUTHORITY_NONE                  :None
+STR_LAND_VALUE_SYSTEM_ENABLED                                   :Enabled
+STR_LAND_VALUE_SYSTEM_DISABLED                                  :Disabled
+STR_LAND_AREA_INFORMATION_LAND_VALUE_STATUS                     :{BLACK}Land value system: {LTBLUE}{STRING}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN                       :{BLACK}Nearest land value town: {LTBLUE}{STRING1}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN_NONE                  :{BLACK}Nearest land value town: {LTBLUE}None
+STR_LAND_AREA_INFORMATION_LAND_VALUE_TOWN_SCORE                 :{BLACK}Town land value score: {LTBLUE}{NUM}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_DISTANCE_BAND              :{BLACK}Land value distance band: {LTBLUE}{NUM}/{NUM}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_DISTANCE_SCORE             :{BLACK}Distance-adjusted score: {LTBLUE}{NUM}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_MODIFIER                   :{BLACK}Land value modifier: {LTBLUE}{NUM}
+STR_LAND_AREA_INFORMATION_LAND_VALUE_FINAL_SCORE                :{BLACK}Final land value score: {LTBLUE}{NUM}
 STR_LAND_AREA_INFORMATION_LANDINFO_COORDS                       :{BLACK}Coordinates: {LTBLUE}{NUM} x {NUM} x {NUM}
 STR_LAND_AREA_INFORMATION_LANDINFO_INDEX                        :{BLACK}Tile index: {LTBLUE}{NUM} ({HEX})
 STR_LAND_AREA_INFORMATION_BUILD_DATE                            :{BLACK}Built/renovated: {LTBLUE}{DATE_LONG}
@@ -3758,6 +3784,14 @@ STR_TOWN_POPULATION                                             :{BLACK}World po
 STR_TOWN_VIEW_TOWN_CAPTION                                      :{WHITE}{TOWN}
 STR_TOWN_VIEW_CITY_CAPTION                                      :{WHITE}{TOWN} (City)
 STR_TOWN_VIEW_POPULATION_HOUSES                                 :{BLACK}Population: {ORANGE}{COMMA}{BLACK}  Houses: {ORANGE}{COMMA}
+STR_TOWN_VIEW_LAND_VALUE_STATUS                                 :{BLACK}Land value system: {ORANGE}{STRING}
+STR_TOWN_VIEW_LAND_VALUE_SCORE                                  :{BLACK}Land value score: {ORANGE}{NUM}
+STR_TOWN_VIEW_LAND_VALUE_RANK                                   :{BLACK}Land value rank: {ORANGE}{NUM}
+STR_TOWN_VIEW_LAND_VALUE_RANK_UNRANKED                          :{BLACK}Land value rank: {ORANGE}Not yet ranked
+STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_POSITIVE                :{BLACK}Monthly land value change: {GREEN}+{NUM}
+STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_NEGATIVE                :{BLACK}Monthly land value change: {RED}{NUM}
+STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_ZERO                    :{BLACK}Monthly land value change: {ORANGE}0
+STR_TOWN_VIEW_LAND_VALUE_CENTER_SCORE                           :{BLACK}Land value centre score: {ORANGE}{NUM}
 STR_TOWN_VIEW_CARGO_LAST_MONTH_MAX                              :{BLACK}{CARGO_LIST} last month: {ORANGE}{COMMA}{BLACK}  max: {ORANGE}{COMMA}
 STR_TOWN_VIEW_CARGO_LAST_MINUTE_MAX                             :{BLACK}{CARGO_LIST} last minute: {ORANGE}{COMMA}{BLACK}  max: {ORANGE}{COMMA}
 STR_TOWN_VIEW_CARGO_FOR_TOWNGROWTH                              :{BLACK}Cargo needed for town growth:

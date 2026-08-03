@@ -1134,6 +1134,16 @@ SettingsContainer &GetSettingsTree()
 
 			SettingsPage *towns = environment->Add(new SettingsPage(STR_CONFIG_SETTING_ENVIRONMENT_TOWNS));
 			{
+				SettingsPage *land_value = towns->Add(new SettingsPage(STR_CONFIG_SETTING_LAND_VALUE));
+				{
+					land_value->Add(new SettingEntry("economy.land_value_enabled"));
+					land_value->Add(new SettingEntry("economy.land_value_smoothing_percent"));
+					land_value->Add(new SettingEntry("economy.land_value_distance_scale"));
+					land_value->Add(new SettingEntry("economy.land_value_purchase_percent"));
+					land_value->Add(new SettingEntry("economy.land_value_infrastructure_percent"));
+					land_value->Add(new SettingEntry("economy.land_value_growth_percent"));
+					land_value->Add(new SettingEntry("economy.land_value_density_percent"));
+				}
 				SettingsPage *town_zone = towns->Add(new SettingsPage(STR_CONFIG_SETTING_TOWN_ZONES));
 				{
 					town_zone->hide_callback = []() -> bool {

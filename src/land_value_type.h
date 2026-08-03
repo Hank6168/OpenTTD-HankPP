@@ -31,7 +31,6 @@ static constexpr LandValueModifier LAND_VALUE_MODIFIER_BASE{10000}; ///< Neutral
 static constexpr LandValueModifier LAND_VALUE_MODIFIER_MAX{40000};  ///< Maximum valid modifier (400%).
 
 static constexpr uint8_t LAND_VALUE_DISTANCE_BAND_COUNT = 64; ///< Number of cached distance bands.
-static constexpr uint8_t LAND_VALUE_MONTHLY_SMOOTHING = 25;    ///< Percentage moved towards the target each economy month.
 
 using LandValueDistanceScores = std::array<LandValueScore, LAND_VALUE_DISTANCE_BAND_COUNT>;
 

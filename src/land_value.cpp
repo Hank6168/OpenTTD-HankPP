@@ -10,6 +10,10 @@
 #include "stdafx.h"
 
 #include "core/math_func.hpp"
+#include "clear_map.h"
+#include "company_base.h"
+#include "economy_func.h"
+#include "genworld.h"
 #include "land_value.h"
 #include "map_func.h"
 #include "settings_type.h"
@@ -226,6 +230,99 @@ LandValueModifier GetLandValueModifier(TileIndex)
 LandValueScore GetFinalLandValueScore(TileIndex tile)
 {
 	return CombineLandValueScoreAndModifier(GetLandValueScore(tile), GetLandValueModifier(tile));
+}
+
+/** Calculate a non-negative, saturating land-purchase surcharge using fixed-point integer arithmetic. */
+Money CalculateLandPurchaseSurcharge(Money base_land_unit, LandValueScore final_score, uint16_t purchase_percent, bool enabled)
+{
+	if (!enabled || base_land_unit <= 0 || purchase_percent == 0) return 0;
+
+	const uint64_t limit = static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+	uint64_t surcharge = ApplyLandValueScore(static_cast<uint64_t>(base_land_unit.base()), final_score, limit);
+	surcharge = ScaleValue(surcharge, purchase_percent, 100, limit);
+	return Money{static_cast<int64_t>(surcharge)};
+}
+
+/** Return the existing, inflation-adjusted minimal landscape-clearing unit used as the land-price base. */
+Money GetLandPurchaseBaseUnit()
+{
+	return std::max<Money>(_price[Price::ClearGrass], 0);
+}
+
+/** Return whether LandscapeClear would perform a meaningful change rather than clear an already bare tile. */
+bool IsLandPurchaseClearRequired(TileIndex tile)
+{
+	if (!IsValidTile(tile)) return false;
+	return !IsTileType(tile, TileType::Clear) || GetClearGround(tile) != ClearGround::Grass || GetClearDensity(tile) != 0 || IsSnowTile(tile);
+}
+
+/** Return a deterministic, read-only decomposition of a land operation. */
+LandPurchaseCostBreakdown GetLandPurchaseCostBreakdown(TileIndex tile, Money original_cost, DoCommandFlags flags, bool force_purchase)
+{
+	LandPurchaseCostBreakdown result{};
+	result.original_cost = original_cost;
+	result.total_cost = original_cost;
+	result.enabled = IsLandValueEnabled();
+	result.purchase_percent = _settings_game.economy.land_value_purchase_percent;
+	result.base_land_unit = GetLandPurchaseBaseUnit();
+	result.clear_required = IsLandPurchaseClearRequired(tile);
+
+	if (!IsValidTile(tile)) {
+		result.status = LandPurchaseCostStatus::InvalidTile;
+		return result;
+	}
+
+	result.final_score = GetFinalLandValueScore(tile);
+	if (!result.enabled) {
+		result.status = LandPurchaseCostStatus::Disabled;
+	} else if (result.purchase_percent == 0) {
+		result.status = LandPurchaseCostStatus::ZeroPercent;
+	} else if (_game_mode == GameMode::Editor) {
+		result.status = LandPurchaseCostStatus::Editor;
+	} else if (_generating_world) {
+		result.status = LandPurchaseCostStatus::WorldGeneration;
+	} else if (flags.Test(DoCommandFlag::Town)) {
+		result.status = LandPurchaseCostStatus::TownOperation;
+	} else if (flags.Test(DoCommandFlag::Bankrupt)) {
+		result.status = LandPurchaseCostStatus::Bankruptcy;
+	} else if (!Company::IsValidID(_current_company)) {
+		result.status = LandPurchaseCostStatus::NoCompany;
+	} else if (!result.clear_required && !force_purchase) {
+		result.status = LandPurchaseCostStatus::NoClearRequired;
+	} else {
+		result.status = LandPurchaseCostStatus::Chargeable;
+		result.land_value_surcharge = CalculateLandPurchaseSurcharge(result.base_land_unit, result.final_score, result.purchase_percent, true);
+		result.total_cost += result.land_value_surcharge;
+	}
+
+	return result;
+}
+
+/** Split a command total which already contains the surcharge using the same core calculation. */
+LandPurchaseCostBreakdown GetLandPurchaseCostBreakdownFromTotal(TileIndex tile, Money total_cost, DoCommandFlags flags, bool force_purchase)
+{
+	LandPurchaseCostBreakdown result = GetLandPurchaseCostBreakdown(tile, 0, flags, force_purchase);
+	result.total_cost = total_cost;
+	result.original_cost = total_cost - result.land_value_surcharge;
+	return result;
+}
+
+/** Return a stable debug name for a land-purchase charging status. */
+const char *GetLandPurchaseCostStatusName(LandPurchaseCostStatus status)
+{
+	switch (status) {
+		case LandPurchaseCostStatus::Chargeable:      return "chargeable";
+		case LandPurchaseCostStatus::InvalidTile:     return "invalid_tile";
+		case LandPurchaseCostStatus::Disabled:        return "disabled";
+		case LandPurchaseCostStatus::ZeroPercent:     return "zero_percent";
+		case LandPurchaseCostStatus::NoCompany:       return "no_company";
+		case LandPurchaseCostStatus::Editor:          return "editor";
+		case LandPurchaseCostStatus::WorldGeneration: return "world_generation";
+		case LandPurchaseCostStatus::TownOperation:   return "town_operation";
+		case LandPurchaseCostStatus::Bankruptcy:      return "bankruptcy";
+		case LandPurchaseCostStatus::NoClearRequired: return "no_clear_required";
+	}
+	NOT_REACHED();
 }
 
 /** Initialize a town's persistent land-value score to the neutral base value. */

@@ -3699,6 +3699,13 @@ static bool ConDumpLandValue(std::span<std::string_view> argv)
 	IConsolePrint(CC_DEFAULT, "final score: {}", result.final_score.base());
 	IConsolePrint(CC_DEFAULT, "rank: {}", result.rank);
 	IConsolePrint(CC_DEFAULT, "monthly_change: {}", result.monthly_change);
+
+	const LandPurchaseCostBreakdown purchase = GetLandPurchaseCostBreakdown(*tile, 0);
+	IConsolePrint(CC_DEFAULT, "purchase_percent: {}", purchase.purchase_percent);
+	IConsolePrint(CC_DEFAULT, "base_land_unit: {}", purchase.base_land_unit);
+	IConsolePrint(CC_DEFAULT, "calculated surcharge: {}", purchase.land_value_surcharge);
+	IConsolePrint(CC_DEFAULT, "chargeable context: {}", purchase.IsChargeable() ? "true" : "false");
+	IConsolePrint(CC_DEFAULT, "charge status: {}", GetLandPurchaseCostStatusName(purchase.status));
 	return true;
 }
 

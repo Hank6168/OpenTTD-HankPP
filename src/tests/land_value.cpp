@@ -12,8 +12,19 @@
 #include "../3rdparty/catch2/catch.hpp"
 
 #include "../industry.h"
+#include "../clear_map.h"
+#include "../command_func.h"
+#include "../company_base.h"
+#include "../company_func.h"
+#include "../economy_func.h"
+#include "../genworld.h"
 #include "../land_value.h"
+#include "../landscape_cmd.h"
 #include "../map_func.h"
+#include "../newgrf_object.h"
+#include "../object_cmd.h"
+#include "../object_type.h"
+#include "../openttd.h"
 #include "../settings_internal.h"
 #include "../settings_type.h"
 #include "../town.h"
@@ -126,6 +137,80 @@ TEST_CASE("Land value scaling saturates without intermediate overflow")
 	CHECK(ApplyLandValueModifier(maximum, LAND_VALUE_MODIFIER_MAX) == maximum);
 	CHECK(ApplyLandValueScore(1000, LAND_VALUE_MAX, 50000) == 50000);
 	CHECK(ApplyLandValueModifier(1000, LAND_VALUE_MODIFIER_MAX, 2500) == 2500);
+}
+
+TEST_CASE("Land purchase surcharge uses bounded integer fixed point")
+{
+	CHECK(CalculateLandPurchaseSurcharge(100, LAND_VALUE_BASE, 100, true) == 100);
+	CHECK(CalculateLandPurchaseSurcharge(100, LandValueScore{500}, 100, true) == 500);
+	CHECK(CalculateLandPurchaseSurcharge(100, LandValueScore{2500}, 100, true) == 2500);
+	CHECK(CalculateLandPurchaseSurcharge(100, LandValueScore{2500}, 50, true) == 1250);
+	CHECK(CalculateLandPurchaseSurcharge(100, LandValueScore{2500}, 0, true) == 0);
+	CHECK(CalculateLandPurchaseSurcharge(100, LandValueScore{2500}, 100, false) == 0);
+	CHECK(CalculateLandPurchaseSurcharge(-100, LandValueScore{2500}, 100, true) == 0);
+	CHECK(CalculateLandPurchaseSurcharge(Money::max(), LAND_VALUE_MAX, 400, true) == Money::max());
+
+	Money previous_score_cost = 0;
+	for (uint32_t score = 0; score <= LAND_VALUE_MAX.base(); ++score) {
+		const Money score_cost = CalculateLandPurchaseSurcharge(100, LandValueScore{score}, 100, true);
+		CHECK(score_cost >= previous_score_cost);
+		previous_score_cost = score_cost;
+	}
+
+	Money previous_percent_cost = 0;
+	for (uint16_t percent = 0; percent <= 400; ++percent) {
+		const Money percent_cost = CalculateLandPurchaseSurcharge(100, LAND_VALUE_MAX, percent, true);
+		CHECK(percent_cost >= previous_percent_cost);
+		previous_percent_cost = percent_cost;
+	}
+}
+
+TEST_CASE("Land purchase breakdown handles invalid tiles and exemption contexts")
+{
+	ResetLandValueTestWorld();
+	_price[Price::ClearGrass] = 100;
+	const TileIndex tile = TileXY(10, 10);
+	MakeClear(tile, ClearGround::Rough, 3);
+
+	CHECK(GetLandPurchaseCostBreakdown(INVALID_TILE, 25).status == LandPurchaseCostStatus::InvalidTile);
+	CHECK(GetLandPurchaseCostBreakdown(tile, 25).status == LandPurchaseCostStatus::NoCompany);
+
+	_company_pool.CleanPool();
+	REQUIRE(Company::CanAllocateItem());
+	Company *company = Company::Create();
+	company->money = Money::max();
+	company->clear_limit = UINT32_MAX;
+	_current_company = company->index;
+	_game_mode = GameMode::Normal;
+	_generating_world = false;
+
+	LandPurchaseCostBreakdown chargeable = GetLandPurchaseCostBreakdown(tile, 25);
+	CHECK(chargeable.IsChargeable());
+	CHECK(chargeable.base_land_unit == 100);
+	CHECK(chargeable.land_value_surcharge == 100);
+	CHECK(chargeable.total_cost == 125);
+
+	_settings_game.economy.land_value_enabled = false;
+	CHECK(GetLandPurchaseCostBreakdown(tile, 25).status == LandPurchaseCostStatus::Disabled);
+	_settings_game.economy.land_value_enabled = true;
+	_settings_game.economy.land_value_purchase_percent = 0;
+	CHECK(GetLandPurchaseCostBreakdown(tile, 25).status == LandPurchaseCostStatus::ZeroPercent);
+	_settings_game.economy.land_value_purchase_percent = 100;
+	_game_mode = GameMode::Editor;
+	CHECK(GetLandPurchaseCostBreakdown(tile, 25).status == LandPurchaseCostStatus::Editor);
+	_game_mode = GameMode::Normal;
+	_generating_world = true;
+	CHECK(GetLandPurchaseCostBreakdown(tile, 25).status == LandPurchaseCostStatus::WorldGeneration);
+	_generating_world = false;
+	CHECK(GetLandPurchaseCostBreakdown(tile, 25, DoCommandFlag::Town).status == LandPurchaseCostStatus::TownOperation);
+	CHECK(GetLandPurchaseCostBreakdown(tile, 25, DoCommandFlag::Bankrupt).status == LandPurchaseCostStatus::Bankruptcy);
+
+	MakeClear(tile, ClearGround::Grass, 0);
+	CHECK(GetLandPurchaseCostBreakdown(tile, 0).status == LandPurchaseCostStatus::NoClearRequired);
+	CHECK(GetLandPurchaseCostBreakdown(tile, 0, {}, true).IsChargeable());
+
+	_current_company = COMPANY_SPECTATOR;
+	_company_pool.CleanPool();
 }
 
 TEST_CASE("Land value score and modifier are combined safely")
@@ -306,6 +391,138 @@ TEST_CASE("Land value query is safe without a town and rejects invalid console t
 	CHECK_FALSE(ResolveLandValueTileCoordinates(Map::SizeX(), 0).has_value());
 	CHECK_FALSE(ResolveLandValueTileCoordinates(0, Map::SizeY()).has_value());
 	CHECK_FALSE(ResolveLandValueTileCoordinates(std::numeric_limits<uint64_t>::max(), 0).has_value());
+}
+
+TEST_CASE("LandscapeClear injects one deterministic land surcharge into real CommandCost")
+{
+	ResetLandValueTestWorld();
+	_price[Price::ClearGrass] = 100;
+	_price[Price::ClearRough] = 120;
+	const TileIndex tile = TileXY(10, 10);
+	MakeClear(tile, ClearGround::Rough, 3);
+	Town *town = CreateLandValueTestTown(10, 10);
+	town->land_value_score = 500;
+	RebuildLandValueCache(town);
+
+	_company_pool.CleanPool();
+	REQUIRE(Company::CanAllocateItem());
+	Company *company = Company::Create();
+	company->money = Money::max();
+	company->clear_limit = UINT32_MAX;
+	_current_company = company->index;
+	_game_mode = GameMode::Normal;
+	_generating_world = false;
+
+	const CommandCost query = Command<Commands::LandscapeClear>::Do(DoCommandFlag::QueryCost, tile);
+	REQUIRE(query.Succeeded());
+	CHECK(query.GetCost() == 620);
+	CHECK(IsLandPurchaseClearRequired(tile));
+
+	const LandPurchaseCostBreakdown split = GetLandPurchaseCostBreakdownFromTotal(tile, query.GetCost(), DoCommandFlag::QueryCost);
+	CHECK(split.original_cost == 120);
+	CHECK(split.land_value_surcharge == 500);
+	CHECK(split.total_cost == query.GetCost());
+
+	const CommandCost execute = Command<Commands::LandscapeClear>::Do(DoCommandFlag::Execute, tile);
+	REQUIRE(execute.Succeeded());
+	CHECK(execute.GetCost() == query.GetCost());
+	CHECK_FALSE(IsLandPurchaseClearRequired(tile));
+
+	const CommandCost empty_query = Command<Commands::LandscapeClear>::Do(DoCommandFlag::QueryCost, tile);
+	REQUIRE(empty_query.Succeeded());
+	CHECK(empty_query.GetCost() == 0);
+
+	_current_company = COMPANY_SPECTATOR;
+	_company_pool.CleanPool();
+	_town_pool.CleanPool();
+	RebuildTownKdtree();
+}
+
+TEST_CASE("Purchase land charges bare and occupied tiles once through the shared surcharge")
+{
+	ResetLandValueTestWorld();
+	ResetObjects();
+	_settings_game.construction.purchase_land_permitted = 1;
+	_price[Price::ClearGrass] = 100;
+	_price[Price::ClearRough] = 120;
+	const TileIndex bare_tile = TileXY(10, 10);
+	const TileIndex rough_tile = TileXY(11, 10);
+	MakeClear(bare_tile, ClearGround::Grass, 0);
+	MakeClear(rough_tile, ClearGround::Rough, 3);
+	Town *town = CreateLandValueTestTown(10, 10);
+	town->land_value_score = 500;
+	RebuildLandValueCache(town);
+
+	_company_pool.CleanPool();
+	REQUIRE(Company::CanAllocateItem());
+	Company *company = Company::Create();
+	company->money = Money::max();
+	company->clear_limit = UINT32_MAX;
+	company->purchase_land_limit = UINT32_MAX;
+	_current_company = company->index;
+	_game_mode = GameMode::Normal;
+	_generating_world = false;
+
+	auto query_purchase = [](TileIndex tile) {
+		return Command<Commands::BuildObject>::Do(DoCommandFlag::QueryCost, tile, OBJECT_OWNED_LAND, 0);
+	};
+
+	_settings_game.economy.land_value_enabled = false;
+	const CommandCost bare_original = query_purchase(bare_tile);
+	const CommandCost rough_original = query_purchase(rough_tile);
+	INFO(bare_original.SummaryMessage(0));
+	REQUIRE(bare_original.Succeeded());
+	INFO(rough_original.SummaryMessage(0));
+	REQUIRE(rough_original.Succeeded());
+
+	_settings_game.economy.land_value_enabled = true;
+	const CommandCost bare_land_value = query_purchase(bare_tile);
+	const CommandCost rough_land_value = query_purchase(rough_tile);
+	REQUIRE(bare_land_value.Succeeded());
+	REQUIRE(rough_land_value.Succeeded());
+	CHECK(bare_land_value.GetCost() - bare_original.GetCost() == 500);
+	CHECK(rough_land_value.GetCost() - rough_original.GetCost() == 500);
+
+	_current_company = COMPANY_SPECTATOR;
+	_company_pool.CleanPool();
+	_town_pool.CleanPool();
+	RebuildTownKdtree();
+}
+
+TEST_CASE("ClearArea accumulates the shared surcharge once per changed tile")
+{
+	ResetLandValueTestWorld();
+	_price[Price::ClearGrass] = 100;
+	_price[Price::ClearRough] = 120;
+	const TileIndex first = TileXY(10, 10);
+	const TileIndex second = TileXY(11, 10);
+	MakeClear(first, ClearGround::Rough, 3);
+	MakeClear(second, ClearGround::Rough, 3);
+	Town *town = CreateLandValueTestTown(10, 10);
+	town->land_value_score = 500;
+	RebuildLandValueCache(town);
+
+	_company_pool.CleanPool();
+	REQUIRE(Company::CanAllocateItem());
+	Company *company = Company::Create();
+	company->money = Money::max();
+	company->clear_limit = UINT32_MAX;
+	_current_company = company->index;
+	_game_mode = GameMode::Normal;
+	_generating_world = false;
+
+	_settings_game.economy.land_value_enabled = false;
+	const CommandCost original = Command<Commands::ClearArea>::Do(DoCommandFlag::QueryCost, second, first, false);
+	REQUIRE(original.Succeeded());
+	_settings_game.economy.land_value_enabled = true;
+	const CommandCost with_land_value = Command<Commands::ClearArea>::Do(DoCommandFlag::QueryCost, second, first, false);
+	REQUIRE(with_land_value.Succeeded());
+	CHECK(with_land_value.GetCost() - original.GetCost() == 1000);
+
+	_current_company = COMPANY_SPECTATOR;
+	_company_pool.CleanPool();
+	_town_pool.CleanPool();
+	RebuildTownKdtree();
 }
 
 TEST_CASE("Disabling land value makes queries neutral and preserves persistent state")

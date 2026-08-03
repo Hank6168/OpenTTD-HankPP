@@ -10,6 +10,7 @@
 #include "stdafx.h"
 #include "landscape.h"
 #include "landscape_cmd.h"
+#include "land_value.h"
 #include "command_func.h"
 #include "company_func.h"
 #include "viewport_func.h"
@@ -294,7 +295,13 @@ CommandCost CmdBuildObject(DoCommandFlags flags, TileIndex tile, ObjectType type
 	if (type == OBJECT_OWNED_LAND) {
 		if (_settings_game.construction.purchase_land_permitted == 0) return CommandCost(STR_PURCHASE_LAND_NOT_PERMITTED);
 		/* Owned land is special as it can be placed on any slope. */
+		const bool clear_required = IsLandPurchaseClearRequired(tile);
 		cost.AddCost(Command<Commands::LandscapeClear>::Do(flags, tile));
+		if (cost.Failed()) return cost;
+		if (!clear_required) {
+			const LandPurchaseCostBreakdown land_purchase = GetLandPurchaseCostBreakdown(tile, cost.GetCost(), flags, true);
+			cost.AddCost(land_purchase.land_value_surcharge);
+		}
 	} else {
 		/* Check the surface to build on. At this time we can't actually execute the
 		 * the CLEAR_TILE commands since the newgrf callback later on can check

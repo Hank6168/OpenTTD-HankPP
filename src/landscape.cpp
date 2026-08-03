@@ -26,6 +26,7 @@
 #include "water.h"
 #include "effectvehicle_func.h"
 #include "landscape_cmd.h"
+#include "land_value.h"
 #include "landscape_type.h"
 #include "animated_tile_func.h"
 #include "core/random_func.hpp"
@@ -613,6 +614,7 @@ void ClearSnowLine()
 CommandCost CmdLandscapeClear(DoCommandFlags flags, TileIndex tile)
 {
 	CommandCost cost(ExpensesType::Construction);
+	const bool land_purchase_clear_required = IsLandPurchaseClearRequired(tile);
 	bool do_clear = false;
 	/* Test for stuff which results in water when cleared. Then add the cost to also clear the water. */
 	if (flags.Test(DoCommandFlag::ForceClearTile) && HasTileWaterClass(tile) && IsTileOnWater(tile) && !IsWaterTile(tile) && !IsCoastTile(tile)) {
@@ -651,6 +653,10 @@ CommandCost CmdLandscapeClear(DoCommandFlags flags, TileIndex tile)
 	} else {
 		cost.AddCost(_tile_type_procs[GetTileType(tile)]->clear_tile_proc(tile, flags));
 	}
+	if (cost.Failed()) return cost;
+
+	const LandPurchaseCostBreakdown land_purchase = GetLandPurchaseCostBreakdown(tile, cost.GetCost(), flags, land_purchase_clear_required);
+	cost.AddCost(land_purchase.land_value_surcharge);
 
 	if (flags.Test(DoCommandFlag::Execute)) {
 		if (c != nullptr) c->clear_limit -= 1 << 16;

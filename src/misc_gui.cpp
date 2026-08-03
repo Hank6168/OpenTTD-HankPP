@@ -202,7 +202,9 @@ public:
 			assert(_current_company == _local_company);
 			CommandCost costclear = Command<Commands::LandscapeClear>::Do(DoCommandFlag::QueryCost, this->tile);
 			if (costclear.Succeeded()) {
-				Money cost = costclear.GetCost();
+				const LandPurchaseCostBreakdown land_purchase_cost = GetLandPurchaseCostBreakdownFromTotal(
+						this->tile, costclear.GetCost(), DoCommandFlag::QueryCost);
+				Money cost = land_purchase_cost.original_cost;
 				StringID str;
 				if (cost < 0) {
 					cost = -cost; // Negate negative cost to a positive revenue
@@ -211,6 +213,10 @@ public:
 					str = STR_LAND_AREA_INFORMATION_COST_TO_CLEAR;
 				}
 				this->landinfo_data.push_back(GetString(str, cost));
+				this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_LAND_VALUE_SURCHARGE,
+						land_purchase_cost.land_value_surcharge));
+				this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_ESTIMATED_CLEAR_TOTAL,
+						land_purchase_cost.total_cost));
 			} else {
 				this->landinfo_data.push_back(GetString(STR_LAND_AREA_INFORMATION_COST_TO_CLEAR_N_A));
 			}

@@ -1436,21 +1436,33 @@ TEST_CASE("Intercity cache handles zero one two Towns deletion loading settings 
 	CHECK(FindIntercityEconomicPair(second->index, first->index) != nullptr);
 
 	Town *small = CreateLandValueTestTown(50, 50);
-	small->cache.population = 500;
-	small->cache.num_houses = 80;
-	small->land_value_score = 250;
-	RebuildAllLandValueCaches();
-	const IntercityEconomicPair *small_pair = FindIntercityEconomicPair(first->index, small->index);
-	REQUIRE(small_pair != nullptr);
-	CHECK(high_pair.potential_passenger_demand > small_pair->potential_passenger_demand);
-	CHECK(GetTownDevelopmentDemand(first).overall_demand == first_demand.overall_demand);
+        small->cache.population = 500;
+        small->cache.num_houses = 80;
+        small->land_value_score = 250;
+        RebuildAllLandValueCaches();
 
-	const TownID deleted_id = small->index;
-	{
-		Backup<GameMode> game_mode(_game_mode, GameMode::Editor, FILE_LINE);
-		const CommandCost deleted = Command<Commands::DeleteTown>::Do(DoCommandFlag::Execute, deleted_id);
-		REQUIRE(deleted.Succeeded());
-	}
+        const IntercityEconomicPair *small_pair = FindIntercityEconomicPair(first->index, small->index);
+        REQUIRE(small_pair != nullptr);
+        CHECK(high_pair.potential_passenger_demand > small_pair->potential_passenger_demand);
+        CHECK(GetTownDevelopmentDemand(first).overall_demand == first_demand.overall_demand);
+
+
+        const TownID deleted_id = small->index;
+
+        const GameMode old_game_mode = _game_mode;
+
+        auto restore_game_mode = scope_guard([&]() {
+                _game_mode = old_game_mode;
+        });
+
+        _game_mode = GameMode::Editor;
+
+        const CommandCost deleted =
+                Command<Commands::DeleteTown>::Do(
+                        DoCommandFlag::Execute,
+                        deleted_id);
+
+        REQUIRE(deleted.Succeeded());
 	CHECK(Town::GetIfValid(deleted_id) == nullptr);
 	CHECK(GetIntercityEconomicPairs().size() == 1);
 	CHECK(FindIntercityEconomicPair(first->index, second->index) != nullptr);

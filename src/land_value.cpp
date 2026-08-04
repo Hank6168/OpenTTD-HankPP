@@ -372,6 +372,181 @@ void RebuildTownDevelopmentDemandCache(Town *town)
 			_settings_game.economy.land_value_growth_percent, IsLandValueEnabled());
 }
 
+static std::vector<IntercityEconomicPair> _intercity_economic_pairs;
+
+/** Calculate every independently bounded component of a town's potential intercity economic mass. */
+TownEconomicMassBreakdown CalculateTownEconomicMassBreakdown(uint32_t population, uint32_t num_houses, bool larger_town,
+		LandValueScore land_value_score, const TownDevelopmentDemandCache &demand)
+{
+	TownEconomicMassBreakdown result{};
+	result.population_component = std::min<uint32_t>(IntSqrt(population) * 900, 300000);
+	result.house_component = std::min<uint32_t>(IntSqrt(num_houses) * 650, 150000);
+	result.development_component = std::min<uint32_t>(
+			std::min(demand.mass.base(), TOWN_DEVELOPMENT_MASS_MAX.base()) * 8, 160000);
+	result.land_value_component = std::min<uint32_t>(IntSqrt(ClampLandValueScore(land_value_score.base()).base()) * 800, 80000);
+
+	const int32_t commercial = std::min<uint16_t>(demand.commercial_demand, TOWN_DEVELOPMENT_DEMAND_MAX);
+	const int32_t industrial = std::min<uint16_t>(demand.industrial_demand, TOWN_DEVELOPMENT_DEMAND_MAX);
+	const int32_t overall = std::min<uint16_t>(demand.overall_demand, TOWN_DEVELOPMENT_DEMAND_MAX);
+	result.commercial_component = (commercial - TOWN_DEVELOPMENT_DEMAND_NEUTRAL) * 6;
+	result.industrial_component = (industrial - TOWN_DEVELOPMENT_DEMAND_NEUTRAL) * 4;
+	result.overall_component = (overall - TOWN_DEVELOPMENT_DEMAND_NEUTRAL) * 3;
+	result.city_bonus = larger_town ? 70000 : 0;
+
+	int64_t total = result.population_component;
+	total += result.house_component;
+	total += result.development_component;
+	total += result.land_value_component;
+	total += result.commercial_component;
+	total += result.industrial_component;
+	total += result.overall_component;
+	total += result.city_bonus;
+	result.total = TownEconomicMass{static_cast<uint32_t>(std::clamp<int64_t>(total, 0, TOWN_ECONOMIC_MASS_MAX.base()))};
+	return result;
+}
+
+/** Return the bounded total from the authoritative economic-mass decomposition. */
+TownEconomicMass CalculateTownEconomicMass(uint32_t population, uint32_t num_houses, bool larger_town,
+		LandValueScore land_value_score, const TownDevelopmentDemandCache &demand)
+{
+	return CalculateTownEconomicMassBreakdown(population, num_houses, larger_town, land_value_score, demand).total;
+}
+
+/** Calculate a monotonic integer distance impedance with a safe non-zero base. */
+uint32_t CalculateIntercityDistanceImpedance(uint32_t distance)
+{
+	const uint64_t impedance = 32 + static_cast<uint64_t>(distance) + static_cast<uint64_t>(distance) * distance / 256;
+	return static_cast<uint32_t>(std::min<uint64_t>(impedance, std::numeric_limits<uint32_t>::max()));
+}
+
+/** Calculate a symmetric, saturating pair strength using frozen scale-before-multiply arithmetic. */
+uint32_t CalculateIntercityPairStrength(TownEconomicMass mass_a, TownEconomicMass mass_b, uint32_t distance_impedance)
+{
+	const uint32_t bounded_a = std::min(mass_a.base(), TOWN_ECONOMIC_MASS_MAX.base());
+	const uint32_t bounded_b = std::min(mass_b.base(), TOWN_ECONOMIC_MASS_MAX.base());
+	if (bounded_a == 0 || bounded_b == 0) return 0;
+
+	const uint64_t scaled_a = std::max<uint32_t>(1, bounded_a / 100);
+	const uint64_t scaled_b = std::max<uint32_t>(1, bounded_b / 100);
+	const uint64_t impedance = std::max<uint32_t>(distance_impedance, 1);
+	const uint64_t strength = scaled_a * scaled_b * 1024 / impedance;
+	return static_cast<uint32_t>(std::min<uint64_t>(strength, INTERCITY_PAIR_STRENGTH_MAX));
+}
+
+/** Compress a pair strength into a normalized potential-demand index, never actual passengers. */
+IntercityPassengerDemand CalculateIntercityPassengerDemand(uint32_t pair_strength)
+{
+	const uint64_t bounded_strength = std::min(pair_strength, INTERCITY_PAIR_STRENGTH_MAX);
+	const uint64_t demand = bounded_strength / 1000 + static_cast<uint64_t>(IntSqrt(bounded_strength)) * 20;
+	return IntercityPassengerDemand{static_cast<uint32_t>(std::min<uint64_t>(demand, INTERCITY_PASSENGER_DEMAND_MAX.base()))};
+}
+
+/** Build one canonical TownID-ordered pair from already derived endpoint masses. */
+IntercityEconomicPair CalculateIntercityEconomicPair(TownID town_a, TownID town_b, TownEconomicMass mass_a,
+		TownEconomicMass mass_b, uint32_t distance)
+{
+	if (town_b < town_a) {
+		std::swap(town_a, town_b);
+		std::swap(mass_a, mass_b);
+	}
+
+	IntercityEconomicPair result{};
+	result.town_a = town_a;
+	result.town_b = town_b;
+	result.mass_a = TownEconomicMass{std::min(mass_a.base(), TOWN_ECONOMIC_MASS_MAX.base())};
+	result.mass_b = TownEconomicMass{std::min(mass_b.base(), TOWN_ECONOMIC_MASS_MAX.base())};
+	result.distance = distance;
+	result.distance_impedance = CalculateIntercityDistanceImpedance(distance);
+	result.pair_strength = CalculateIntercityPairStrength(result.mass_a, result.mass_b, result.distance_impedance);
+	result.potential_passenger_demand = CalculateIntercityPassengerDemand(result.pair_strength);
+	return result;
+}
+
+/** Return the last globally rebuilt NOSAVE economic mass, or zero when unavailable or disabled. */
+TownEconomicMass GetTownEconomicMass(const Town *town)
+{
+	if (!IsLandValueEnabled() || town == nullptr || !Town::IsValidID(town->index)) return TownEconomicMass{0};
+	return town->cache.economic_mass;
+}
+
+/** Return all pairs between the deterministic Top-K endpoint candidates. */
+std::span<const IntercityEconomicPair> GetIntercityEconomicPairs()
+{
+	return _intercity_economic_pairs;
+}
+
+/** Return at most the strongest 64 pairs without exposing a writable container. */
+std::span<const IntercityEconomicPair> GetTopIntercityEconomicPairs()
+{
+	return std::span<const IntercityEconomicPair>{_intercity_economic_pairs}.first(
+			std::min(_intercity_economic_pairs.size(), LAND_VALUE_INTERCITY_TOP_PAIRS));
+}
+
+/** Find a canonical pair while rejecting invalid or identical TownIDs. */
+const IntercityEconomicPair *FindIntercityEconomicPair(TownID town_a, TownID town_b)
+{
+	if (town_a == town_b || !Town::IsValidID(town_a) || !Town::IsValidID(town_b)) return nullptr;
+	if (town_b < town_a) std::swap(town_a, town_b);
+	for (const IntercityEconomicPair &pair : _intercity_economic_pairs) {
+		if (pair.town_a == town_a && pair.town_b == town_b) return &pair;
+	}
+	return nullptr;
+}
+
+/** Clear all global NOSAVE pair state, including before a TownPool bulk cleanup. */
+void ClearIntercityEconomicGravityCache()
+{
+	_intercity_economic_pairs.clear();
+}
+
+/** Rebuild all economic masses and the bounded, deterministic Top-K pair cache exactly once. */
+void RebuildIntercityEconomicGravityCache()
+{
+	ClearIntercityEconomicGravityCache();
+	for (Town *town : Town::Iterate()) town->cache.economic_mass = TownEconomicMass{0};
+	if (!IsLandValueEnabled()) return;
+
+	struct Candidate {
+		TownID town_id;
+		TownEconomicMass mass;
+		TileIndex xy;
+	};
+	std::vector<Candidate> candidates;
+	candidates.reserve(Town::GetNumItems());
+
+	for (Town *town : Town::Iterate()) {
+		const TownDevelopmentDemandCache demand = GetTownDevelopmentDemand(town);
+		town->cache.economic_mass = CalculateTownEconomicMass(town->cache.population, town->cache.num_houses,
+				town->larger_town, ClampLandValueScore(town->land_value_score), demand);
+		if (town->cache.economic_mass.base() != 0) candidates.push_back({town->index, town->cache.economic_mass, town->xy});
+	}
+
+	std::sort(candidates.begin(), candidates.end(), [](const Candidate &a, const Candidate &b) {
+		if (a.mass != b.mass) return a.mass > b.mass;
+		return a.town_id < b.town_id;
+	});
+	if (candidates.size() > LAND_VALUE_INTERCITY_TOP_TOWNS) candidates.resize(LAND_VALUE_INTERCITY_TOP_TOWNS);
+
+	_intercity_economic_pairs.reserve(candidates.size() * (candidates.size() - (candidates.empty() ? 0 : 1)) / 2);
+	for (size_t i = 0; i < candidates.size(); ++i) {
+		for (size_t j = i + 1; j < candidates.size(); ++j) {
+			const Candidate &a = candidates[i];
+			const Candidate &b = candidates[j];
+			_intercity_economic_pairs.push_back(CalculateIntercityEconomicPair(
+					a.town_id, b.town_id, a.mass, b.mass, DistanceManhattan(a.xy, b.xy)));
+		}
+	}
+
+	std::sort(_intercity_economic_pairs.begin(), _intercity_economic_pairs.end(), [](const IntercityEconomicPair &a, const IntercityEconomicPair &b) {
+		if (a.potential_passenger_demand != b.potential_passenger_demand) return a.potential_passenger_demand > b.potential_passenger_demand;
+		if (a.pair_strength != b.pair_strength) return a.pair_strength > b.pair_strength;
+		if (a.town_a != b.town_a) return a.town_a < b.town_a;
+		return a.town_b < b.town_b;
+	});
+	uint32_t rank = 1;
+	for (IntercityEconomicPair &pair : _intercity_economic_pairs) pair.rank = rank++;
+}
+
 /** Clamp a signed land-use factor to its public range. */
 static uint16_t ClampLandUseFactor(int64_t factor)
 {
@@ -798,6 +973,7 @@ void RebuildAllLandValueCaches()
 		RebuildLandValueCache(town);
 	}
 	UpdateLandValueRanks();
+	RebuildIntercityEconomicGravityCache();
 }
 
 /** Update persistent scores once per economy month, then rebuild derived caches and ranks. */
@@ -823,6 +999,7 @@ void LandValueMonthlyLoop()
 	}
 
 	UpdateLandValueRanks();
+	RebuildIntercityEconomicGravityCache();
 	InvalidateWindowClassesData(WindowClass::LandInfo);
 	InvalidateWindowClassesData(WindowClass::TownView);
 }

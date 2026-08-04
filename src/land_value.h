@@ -19,6 +19,7 @@
 
 #include <limits>
 #include <optional>
+#include <span>
 
 struct Town;
 struct HouseSpec;
@@ -95,6 +96,41 @@ TownDevelopmentDemandCache CalculateTownDevelopmentDemand(uint32_t population, u
 TownDevelopmentDemandLevel GetTownDevelopmentDemandLevel(uint16_t demand);
 TownDevelopmentDemandCache GetTownDevelopmentDemand(const Town *town);
 void RebuildTownDevelopmentDemandCache(Town *town);
+
+static constexpr size_t LAND_VALUE_INTERCITY_TOP_TOWNS = 32;
+static constexpr size_t LAND_VALUE_INTERCITY_TOP_PAIRS = 64;
+static constexpr uint32_t INTERCITY_PAIR_STRENGTH_MAX = 1000000000;
+
+/** One normalized, non-persistent potential economic relation between two towns. */
+struct IntercityEconomicPair {
+	TownID town_a = TownID::Invalid();
+	TownID town_b = TownID::Invalid();
+	TownEconomicMass mass_a{0};
+	TownEconomicMass mass_b{0};
+	uint32_t distance = 0;
+	uint32_t distance_impedance = 0;
+	uint32_t pair_strength = 0;
+	IntercityPassengerDemand potential_passenger_demand{0};
+	uint32_t rank = 0;
+
+	bool operator==(const IntercityEconomicPair &) const = default;
+};
+
+TownEconomicMassBreakdown CalculateTownEconomicMassBreakdown(uint32_t population, uint32_t num_houses, bool larger_town,
+		LandValueScore land_value_score, const TownDevelopmentDemandCache &demand);
+TownEconomicMass CalculateTownEconomicMass(uint32_t population, uint32_t num_houses, bool larger_town,
+		LandValueScore land_value_score, const TownDevelopmentDemandCache &demand);
+uint32_t CalculateIntercityDistanceImpedance(uint32_t distance);
+uint32_t CalculateIntercityPairStrength(TownEconomicMass mass_a, TownEconomicMass mass_b, uint32_t distance_impedance);
+IntercityPassengerDemand CalculateIntercityPassengerDemand(uint32_t pair_strength);
+IntercityEconomicPair CalculateIntercityEconomicPair(TownID town_a, TownID town_b, TownEconomicMass mass_a,
+		TownEconomicMass mass_b, uint32_t distance);
+TownEconomicMass GetTownEconomicMass(const Town *town);
+std::span<const IntercityEconomicPair> GetIntercityEconomicPairs();
+std::span<const IntercityEconomicPair> GetTopIntercityEconomicPairs();
+const IntercityEconomicPair *FindIntercityEconomicPair(TownID town_a, TownID town_b);
+void RebuildIntercityEconomicGravityCache();
+void ClearIntercityEconomicGravityCache();
 
 HouseDensityClass ClassifyHouseDensity(uint32_t population_per_tile);
 HouseLandUseProfile CalculateHouseLandUseProfile(uint32_t population, uint8_t tile_count, uint8_t minimum_zone, bool special_building = false);

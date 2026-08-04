@@ -92,6 +92,7 @@ void RebuildTownKdtree()
 
 /** Set if a town is being generated. */
 static bool _generating_town = false;
+static bool _generating_town_batch = false;
 
 /**
  * Check if a town 'owns' a bridge.
@@ -174,6 +175,12 @@ Town::~Town()
 	MarkWholeScreenDirty();
 }
 
+/** Clear global TownID-derived caches before bulk deletion can reuse pool slots. */
+void Town::PreCleanPool()
+{
+	ClearIntercityEconomicGravityCache();
+}
+
 
 /**
  * Invalidating of the "nearest town cache" has to be done
@@ -189,6 +196,8 @@ void Town::PostDestructor([[maybe_unused]] size_t index)
 	for (Object *o : Object::Iterate()) {
 		if (o->town == nullptr) o->town = CalcClosestTownFromTile(o->location.tile, UINT_MAX);
 	}
+
+	ClearIntercityEconomicGravityCache();
 }
 
 /**
@@ -2484,6 +2493,8 @@ CommandCost CmdFoundTown(DoCommandFlags flags, TileIndex tile, TownSize size, bo
 			AI::BroadcastNewEvent(new ScriptEventTownFounded(t->index));
 			Game::NewEvent(new ScriptEventTownFounded(t->index));
 		}
+
+		RebuildIntercityEconomicGravityCache();
 	}
 	return cost;
 }
@@ -2702,6 +2713,7 @@ uint GetDefaultTownsForMapSize()
  */
 bool GenerateTowns(TownLayout layout, std::optional<uint> number)
 {
+	AutoRestoreBackup generating_town_batch(_generating_town_batch, true);
 	uint current_number = 0;
 	uint total;
 	if (number.has_value()) {
@@ -2743,6 +2755,7 @@ bool GenerateTowns(TownLayout layout, std::optional<uint> number)
 
 	/* Build the town k-d tree again to make sure it's well balanced */
 	RebuildTownKdtree();
+	RebuildIntercityEconomicGravityCache();
 
 	if (current_number != 0) return true;
 
@@ -2750,6 +2763,7 @@ bool GenerateTowns(TownLayout layout, std::optional<uint> number)
 	 * So give it a last try, but now more aggressive */
 	if (GenerateTownName(_random, &townnameparts) &&
 			CreateRandomTown(10000, townnameparts, TSZ_RANDOM, _settings_game.economy.larger_towns != 0, layout) != nullptr) {
+		RebuildIntercityEconomicGravityCache();
 		return true;
 	}
 
@@ -2787,6 +2801,7 @@ Town *TryGenerateNamedTownAroundTile(TileIndex target_tile, TownSize size, bool 
 		Town *t = Town::Create(tile);
 		t->name = name;
 		DoCreateTown(t, tile, 0, size, city, layout, true);
+		if (!_generating_world) RebuildIntercityEconomicGravityCache();
 		return t;
 	}
 
@@ -3803,6 +3818,7 @@ CommandCost CmdDeleteTown(DoCommandFlags flags, TownID town_id)
 		_town_kdtree.Remove(t->index);
 		if (_viewport_sign_kdtree_valid && t->cache.sign.kdtree_valid) _viewport_sign_kdtree.Remove(ViewportSignKdtreeItem::MakeTown(t->index));
 		delete t;
+		if (!_generating_world && !_generating_town_batch) RebuildIntercityEconomicGravityCache();
 	}
 
 	return CommandCost();

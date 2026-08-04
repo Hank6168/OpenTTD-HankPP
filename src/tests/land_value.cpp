@@ -1277,3 +1277,202 @@ TEST_CASE("Real town house selection applies one weight pass and preserves a sin
 	const auto active_random = run_build(100);
 	CHECK(neutral_random == active_random);
 }
+
+TEST_CASE("Town economic mass uses bounded signed components and remains deterministic")
+{
+	TownDevelopmentDemandCache neutral{};
+	neutral.mass = TownDevelopmentMass{0};
+	const TownEconomicMassBreakdown empty = CalculateTownEconomicMassBreakdown(0, 0, false, LandValueScore{0}, neutral);
+	CHECK(empty.total == TownEconomicMass{0});
+
+	neutral.mass = CalculateTownDevelopmentMass(500, 80, false);
+	const TownEconomicMassBreakdown small = CalculateTownEconomicMassBreakdown(500, 80, false, LandValueScore{250}, neutral);
+	const TownEconomicMassBreakdown more_population = CalculateTownEconomicMassBreakdown(5000, 80, false, LandValueScore{250}, neutral);
+	const TownEconomicMassBreakdown more_houses = CalculateTownEconomicMassBreakdown(500, 800, false, LandValueScore{250}, neutral);
+	const TownEconomicMassBreakdown city = CalculateTownEconomicMassBreakdown(500, 80, true, LandValueScore{250}, neutral);
+	const TownEconomicMassBreakdown higher_score = CalculateTownEconomicMassBreakdown(500, 80, false, LandValueScore{2500}, neutral);
+	CHECK(more_population.total >= small.total);
+	CHECK(more_houses.total >= small.total);
+	CHECK(city.total.base() == small.total.base() + 70000);
+	CHECK(higher_score.total >= small.total);
+
+	TownDevelopmentDemandCache stronger = neutral;
+	stronger.commercial_demand = 15000;
+	const TownEconomicMass commercial = CalculateTownEconomicMass(5000, 800, false, LandValueScore{600}, stronger);
+	stronger.industrial_demand = 15000;
+	const TownEconomicMass industrial = CalculateTownEconomicMass(5000, 800, false, LandValueScore{600}, stronger);
+	stronger.overall_demand = 15000;
+	const TownEconomicMass overall = CalculateTownEconomicMass(5000, 800, false, LandValueScore{600}, stronger);
+	CHECK(industrial >= commercial);
+	CHECK(overall >= industrial);
+
+	TownDevelopmentDemandCache extreme{};
+	extreme.mass = TownDevelopmentMass{UINT32_MAX};
+	extreme.commercial_demand = UINT16_MAX;
+	extreme.industrial_demand = UINT16_MAX;
+	extreme.overall_demand = UINT16_MAX;
+	const TownEconomicMass capped = CalculateTownEconomicMass(UINT32_MAX, UINT32_MAX, true, LandValueScore{UINT32_MAX}, extreme);
+	CHECK(capped <= TOWN_ECONOMIC_MASS_MAX);
+	CHECK(capped == CalculateTownEconomicMass(UINT32_MAX, UINT32_MAX, true, LandValueScore{UINT32_MAX}, extreme));
+
+	const TownDevelopmentDemandCache large_demand = CalculateTownDevelopmentDemand(50000, 6000, true, LandValueScore{2500}, 20, true);
+	const TownEconomicMass large = CalculateTownEconomicMass(50000, 6000, true, LandValueScore{2500}, large_demand);
+	TownDevelopmentDemandCache high_land_small_demand = CalculateTownDevelopmentDemand(500, 80, false, LandValueScore{10000}, 20, true);
+	const TownEconomicMass high_land_small = CalculateTownEconomicMass(500, 80, false, LandValueScore{10000}, high_land_small_demand);
+	CHECK(large > high_land_small);
+}
+
+TEST_CASE("Intercity impedance strength and demand use frozen saturating integer arithmetic")
+{
+	CHECK(CalculateIntercityDistanceImpedance(0) == 32);
+	CHECK(CalculateIntercityDistanceImpedance(1) == 33);
+	CHECK(CalculateIntercityDistanceImpedance(16) == 49);
+	CHECK(CalculateIntercityDistanceImpedance(256) == 544);
+	CHECK(CalculateIntercityDistanceImpedance(UINT32_MAX) == UINT32_MAX);
+	uint32_t previous_impedance = 0;
+	for (uint32_t distance : {0U, 1U, 16U, 32U, 64U, 128U, 256U, 512U, 1024U, 1048830U}) {
+		const uint32_t impedance = CalculateIntercityDistanceImpedance(distance);
+		CHECK(impedance >= previous_impedance);
+		previous_impedance = impedance;
+	}
+
+	const TownEconomicMass low{100000};
+	const TownEconomicMass high{500000};
+	CHECK(CalculateIntercityPairStrength(TownEconomicMass{0}, high, 32) == 0);
+	CHECK(CalculateIntercityPairStrength(high, TownEconomicMass{0}, 32) == 0);
+	CHECK(CalculateIntercityPairStrength(low, high, 224) == CalculateIntercityPairStrength(high, low, 224));
+	CHECK(CalculateIntercityPairStrength(high, high, 224) >= CalculateIntercityPairStrength(low, high, 224));
+	CHECK(CalculateIntercityPairStrength(high, high, 544) <= CalculateIntercityPairStrength(high, high, 224));
+	CHECK(CalculateIntercityPairStrength(TOWN_ECONOMIC_MASS_MAX, TOWN_ECONOMIC_MASS_MAX, 1) == INTERCITY_PAIR_STRENGTH_MAX);
+
+	CHECK(CalculateIntercityPassengerDemand(0) == IntercityPassengerDemand{0});
+	IntercityPassengerDemand previous{0};
+	for (uint32_t strength : {0U, 1U, 100U, 10000U, 1000000U, 100000000U, UINT32_MAX}) {
+		const IntercityPassengerDemand demand = CalculateIntercityPassengerDemand(strength);
+		CHECK(demand >= previous);
+		CHECK(demand <= INTERCITY_PASSENGER_DEMAND_MAX);
+		previous = demand;
+	}
+	CHECK(CalculateIntercityPassengerDemand(40000).base() < CalculateIntercityPassengerDemand(10000).base() * 4);
+}
+
+TEST_CASE("Intercity pairs normalize TownIDs and preserve endpoint masses")
+{
+	const TownID first{3};
+	const TownID second{9};
+	const IntercityEconomicPair forward = CalculateIntercityEconomicPair(first, second, TownEconomicMass{120000}, TownEconomicMass{340000}, 128);
+	const IntercityEconomicPair reverse = CalculateIntercityEconomicPair(second, first, TownEconomicMass{340000}, TownEconomicMass{120000}, 128);
+	CHECK(forward == reverse);
+	CHECK(forward.town_a == first);
+	CHECK(forward.town_b == second);
+	CHECK(forward.mass_a == TownEconomicMass{120000});
+	CHECK(forward.mass_b == TownEconomicMass{340000});
+	CHECK(forward.distance_impedance == 224);
+	CHECK(forward.potential_passenger_demand == CalculateIntercityPassengerDemand(forward.pair_strength));
+}
+
+TEST_CASE("Intercity cache selects deterministic Top K and bounds ranked pairs")
+{
+	ResetLandValueTestWorld();
+	std::vector<Town *> towns;
+	for (uint i = 0; i < 40; ++i) {
+		Town *town = CreateLandValueTestTown(i % 64, i / 64);
+		town->cache.population = (i + 1) * 100;
+		town->cache.num_houses = 100;
+		town->land_value_score = 600;
+		towns.push_back(town);
+	}
+	RebuildAllLandValueCaches();
+
+	const std::span<const IntercityEconomicPair> all = GetIntercityEconomicPairs();
+	CHECK(all.size() == LAND_VALUE_INTERCITY_TOP_TOWNS * (LAND_VALUE_INTERCITY_TOP_TOWNS - 1) / 2);
+	CHECK(GetTopIntercityEconomicPairs().size() == LAND_VALUE_INTERCITY_TOP_PAIRS);
+	for (size_t i = 0; i < all.size(); ++i) {
+		CHECK(all[i].rank == i + 1);
+		CHECK(all[i].town_a < all[i].town_b);
+		CHECK(all[i].town_a.base() >= 8);
+		CHECK(all[i].town_b.base() >= 8);
+		if (i != 0) {
+			CHECK(all[i - 1].potential_passenger_demand >= all[i].potential_passenger_demand);
+			if (all[i - 1].potential_passenger_demand == all[i].potential_passenger_demand) {
+				CHECK(all[i - 1].pair_strength >= all[i].pair_strength);
+			}
+		}
+	}
+	const std::vector<IntercityEconomicPair> first_rebuild(all.begin(), all.end());
+	RebuildIntercityEconomicGravityCache();
+	CHECK(std::ranges::equal(first_rebuild, GetIntercityEconomicPairs()));
+
+	_town_pool.CleanPool();
+	RebuildTownKdtree();
+	CHECK(GetIntercityEconomicPairs().empty());
+}
+
+TEST_CASE("Intercity cache handles zero one two Towns deletion loading settings and disabled state")
+{
+	ResetLandValueTestWorld();
+	RebuildIntercityEconomicGravityCache();
+	CHECK(GetIntercityEconomicPairs().empty());
+
+	Town *first = CreateLandValueTestTown(5, 5);
+	first->cache.population = 50000;
+	first->cache.num_houses = 6000;
+	first->larger_town = true;
+	first->land_value_score = 2500;
+	RebuildAllLandValueCaches();
+	CHECK(GetIntercityEconomicPairs().empty());
+	CHECK(GetTownEconomicMass(first).base() > 0);
+
+	Town *second = CreateLandValueTestTown(30, 30);
+	second->cache.population = 60000;
+	second->cache.num_houses = 7000;
+	second->larger_town = true;
+	second->land_value_score = 500;
+	RebuildAllLandValueCaches();
+	REQUIRE(GetIntercityEconomicPairs().size() == 1);
+	const TownDevelopmentDemandCache first_demand = GetTownDevelopmentDemand(first);
+	const IntercityEconomicPair high_pair = GetIntercityEconomicPairs().front();
+	CHECK(FindIntercityEconomicPair(first->index, second->index) != nullptr);
+	CHECK(FindIntercityEconomicPair(second->index, first->index) != nullptr);
+
+	Town *small = CreateLandValueTestTown(50, 50);
+	small->cache.population = 500;
+	small->cache.num_houses = 80;
+	small->land_value_score = 250;
+	RebuildAllLandValueCaches();
+	const IntercityEconomicPair *small_pair = FindIntercityEconomicPair(first->index, small->index);
+	REQUIRE(small_pair != nullptr);
+	CHECK(high_pair.potential_passenger_demand > small_pair->potential_passenger_demand);
+	CHECK(GetTownDevelopmentDemand(first).overall_demand == first_demand.overall_demand);
+
+	const TownID deleted_id = small->index;
+	{
+		Backup<GameMode> game_mode(_game_mode, GameMode::Editor, FILE_LINE);
+		const CommandCost deleted = Command<Commands::DeleteTown>::Do(DoCommandFlag::Execute, deleted_id);
+		REQUIRE(deleted.Succeeded());
+	}
+	CHECK(Town::GetIfValid(deleted_id) == nullptr);
+	CHECK(GetIntercityEconomicPairs().size() == 1);
+	CHECK(FindIntercityEconomicPair(first->index, second->index) != nullptr);
+
+	InitializeLoadedTownLandValues(true);
+	CHECK(GetIntercityEconomicPairs().size() == 1);
+	const IntSettingDesc *enabled_setting = GetSettingFromName("economy.land_value_enabled")->AsIntSetting();
+	REQUIRE(enabled_setting->post_callback != nullptr);
+	_settings_game.economy.land_value_enabled = false;
+	enabled_setting->post_callback(0);
+	CHECK(GetIntercityEconomicPairs().empty());
+	CHECK(GetTownEconomicMass(first) == TownEconomicMass{0});
+	CHECK(GetTownEconomicMass(second) == TownEconomicMass{0});
+	CHECK(first->land_value_score == 2500);
+	CHECK(second->land_value_score == 500);
+
+	_settings_game.economy.land_value_enabled = true;
+	enabled_setting->post_callback(1);
+	CHECK(GetIntercityEconomicPairs().size() == 1);
+	CHECK(GetTownEconomicMass(first).base() > 0);
+	CHECK(GetTownEconomicMass(second).base() > 0);
+
+	_town_pool.CleanPool();
+	RebuildTownKdtree();
+}

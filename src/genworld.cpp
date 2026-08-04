@@ -44,6 +44,7 @@
 #include "newgrf_industrytiles.h"
 #include "station_func.h"
 #include "town_cmd.h"
+#include "land_value.h"
 #include "signs_cmd.h"
 #include "road_cmd.h"
 
@@ -566,4 +567,6 @@ void LoadTownData()
 			if (t->cache.num_houses <= before) fail_limit--;
 		} while (fail_limit > 0 && try_limit-- > 0 && t->cache.population < population);
 	}
+
+	RebuildAllLandValueCaches();
 }

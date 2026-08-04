@@ -3811,6 +3811,7 @@ STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_NEGATIVE                :{BLACK}Monthly 
 STR_TOWN_VIEW_LAND_VALUE_MONTHLY_CHANGE_ZERO                    :{BLACK}Monthly land value change: {ORANGE}0
 STR_TOWN_VIEW_LAND_VALUE_CENTER_SCORE                           :{BLACK}Land value centre score: {ORANGE}{NUM}
 STR_TOWN_VIEW_LAND_VALUE_INFLUENCE_RADIUS                       :{BLACK}Land value influence radius: {ORANGE}about {NUM} tiles
+STR_TOWN_VIEW_ECONOMIC_MASS                                     :{BLACK}Intercity economic mass: {ORANGE}{NUM}
 STR_TOWN_VIEW_OVERALL_DEVELOPMENT_DEMAND                        :{BLACK}Overall development demand: {ORANGE}{STRING} ({NUM}.{NUM}%)
 STR_TOWN_VIEW_RESIDENTIAL_DEVELOPMENT_DEMAND                    :{BLACK}Residential demand: {ORANGE}{STRING} ({NUM}.{NUM}%)
 STR_TOWN_VIEW_COMMERCIAL_DEVELOPMENT_DEMAND                     :{BLACK}Commercial demand: {ORANGE}{STRING} ({NUM}.{NUM}%)

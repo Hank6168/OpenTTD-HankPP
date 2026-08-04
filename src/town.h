@@ -68,6 +68,7 @@ struct TownCache {
 	uint32_t population = 0;                                          ///< Current population of people
 	LandValueCache land_value{};                                      ///< Derived in-memory land-value data
 	TownDevelopmentDemandCache development_demand{};                  ///< Derived in-memory town development demand
+	TownEconomicMass economic_mass{0};                                ///< Derived in-memory intercity economic mass
 	TrackedViewportSign sign{};                                       ///< Location of name sign, UpdateVirtCoord updates this
 	PartsOfSubsidy part_of_subsidy{};                                 ///< Is this town a source/destination of a subsidy?
 	std::array<uint32_t, NUM_HOUSE_ZONES> squared_town_zone_radius{}; ///< UpdateTownRadius updates this given the house count
@@ -317,6 +318,7 @@ struct Town : TownPool::PoolItem<&_town_pool> {
 
 	static Town *GetRandom();
 	static void PostDestructor(size_t index);
+	static void PreCleanPool();
 
 private:
 	void FillCachedName() const;

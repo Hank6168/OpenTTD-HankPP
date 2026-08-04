@@ -53,6 +53,30 @@ struct TownDevelopmentDemandCache {
 	bool active = false;
 };
 
+/** A bounded, sub-linear measure of a town's potential intercity economic weight. */
+struct TownEconomicMassTag : public StrongType::TypedefTraits<uint32_t, StrongType::Compare> {};
+using TownEconomicMass = StrongType::Typedef<TownEconomicMassTag>;
+
+/** A normalized potential-demand index. This is not a number of passengers. */
+struct IntercityPassengerDemandTag : public StrongType::TypedefTraits<uint32_t, StrongType::Compare> {};
+using IntercityPassengerDemand = StrongType::Typedef<IntercityPassengerDemandTag>;
+
+static constexpr TownEconomicMass TOWN_ECONOMIC_MASS_MAX{1000000};
+static constexpr IntercityPassengerDemand INTERCITY_PASSENGER_DEMAND_MAX{1000000};
+
+/** Exact integer decomposition of one derived town economic mass. */
+struct TownEconomicMassBreakdown {
+	uint32_t population_component = 0;
+	uint32_t house_component = 0;
+	uint32_t development_component = 0;
+	uint32_t land_value_component = 0;
+	int32_t commercial_component = 0;
+	int32_t industrial_component = 0;
+	int32_t overall_component = 0;
+	uint32_t city_bonus = 0;
+	TownEconomicMass total{0};
+};
+
 static constexpr uint16_t LAND_USE_FACTOR_NEUTRAL = 10000; ///< Neutral house-selection factor (100%).
 static constexpr uint16_t LAND_USE_FACTOR_MIN = 5000;      ///< Minimum public house-selection factor (50%).
 static constexpr uint16_t LAND_USE_FACTOR_MAX = 16000;     ///< Maximum public house-selection factor (160%).

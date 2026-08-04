@@ -3755,6 +3755,86 @@ static bool ConDumpLandValue(std::span<std::string_view> argv)
 	return true;
 }
 
+/** Dump derived Town economic masses and potential intercity pair rankings. */
+static bool ConDumpIntercityEconomy(std::span<std::string_view> argv)
+{
+	if (argv.empty()) {
+		IConsolePrint(CC_HELP, "Dump potential intercity economic masses and Town pairs (no actual passengers).");
+		IConsolePrint(CC_HELP, "Usage: 'dump_intercity_economy [count]' or 'dump_intercity_economy town <town_id>'.");
+		return true;
+	}
+	if (argv.size() > 3) return false;
+
+	size_t count = 10;
+	const Town *selected_town = nullptr;
+	if (argv.size() == 2) {
+		const auto raw_count = ParseInteger<uint64_t>(argv[1], 0);
+		if (!raw_count.has_value()) return false;
+		count = static_cast<size_t>(std::clamp<uint64_t>(*raw_count, 1, LAND_VALUE_INTERCITY_TOP_PAIRS));
+	} else if (argv.size() == 3) {
+		if (argv[1] != "town") return false;
+		const auto raw_town = ParseInteger<uint64_t>(argv[2], 0);
+		if (!raw_town.has_value() || *raw_town >= TownID::End().base()) {
+			IConsolePrint(CC_ERROR, "Invalid TownID.");
+			return true;
+		}
+		selected_town = Town::GetIfValid(static_cast<TownID>(*raw_town));
+		if (selected_town == nullptr) {
+			IConsolePrint(CC_ERROR, "Town does not exist.");
+			return true;
+		}
+	}
+
+	IConsolePrint(CC_DEFAULT, "intercity economic gravity: {}", IsLandValueEnabled() ? "enabled" : "disabled");
+	IConsolePrint(CC_DEFAULT, "top_town_limit: {}, top_pair_limit: {}, cached_pairs: {}",
+			LAND_VALUE_INTERCITY_TOP_TOWNS, LAND_VALUE_INTERCITY_TOP_PAIRS, GetIntercityEconomicPairs().size());
+	IConsolePrint(CC_DEFAULT, "potential_passenger_demand unit: demand_index_not_passengers");
+	if (!IsLandValueEnabled()) return true;
+
+	std::vector<const Town *> towns;
+	if (selected_town != nullptr) {
+		towns.push_back(selected_town);
+	} else {
+		for (const Town *town : Town::Iterate()) towns.push_back(town);
+		std::sort(towns.begin(), towns.end(), [](const Town *a, const Town *b) {
+			const TownEconomicMass mass_a = GetTownEconomicMass(a);
+			const TownEconomicMass mass_b = GetTownEconomicMass(b);
+			if (mass_a != mass_b) return mass_a > mass_b;
+			return a->index < b->index;
+		});
+		if (towns.size() > count) towns.resize(count);
+	}
+
+	IConsolePrint(CC_DEFAULT, "Towns:");
+	for (const Town *town : towns) {
+		const TownDevelopmentDemandCache demand = GetTownDevelopmentDemand(town);
+		const TownEconomicMassBreakdown mass = CalculateTownEconomicMassBreakdown(town->cache.population,
+				town->cache.num_houses, town->larger_town, ClampLandValueScore(town->land_value_score), demand);
+		IConsolePrint(CC_DEFAULT,
+				"  TownID={} name={} population={} houses={} score={} mass={} overall={} commercial={} industrial={}",
+				town->index.base(), GetString(STR_TOWN_NAME, town->index), town->cache.population, town->cache.num_houses,
+				town->land_value_score, mass.total.base(), demand.overall_demand, demand.commercial_demand, demand.industrial_demand);
+		IConsolePrint(CC_DEFAULT,
+				"    components population={} houses={} development={} land_value={} commercial={} industrial={} overall={} city_bonus={}",
+				mass.population_component, mass.house_component, mass.development_component, mass.land_value_component,
+				mass.commercial_component, mass.industrial_component, mass.overall_component, mass.city_bonus);
+	}
+
+	IConsolePrint(CC_DEFAULT, "Town pairs:");
+	size_t printed = 0;
+	for (const IntercityEconomicPair &pair : GetIntercityEconomicPairs()) {
+		if (selected_town != nullptr && pair.town_a != selected_town->index && pair.town_b != selected_town->index) continue;
+		if (printed++ >= count) break;
+		IConsolePrint(CC_DEFAULT,
+				"  rank={} town_a={} ({}) town_b={} ({}) distance={} impedance={} mass_a={} mass_b={} strength={} potential_demand_index={}",
+				pair.rank, pair.town_a.base(), GetString(STR_TOWN_NAME, pair.town_a), pair.town_b.base(),
+				GetString(STR_TOWN_NAME, pair.town_b), pair.distance, pair.distance_impedance, pair.mass_a.base(),
+				pair.mass_b.base(), pair.pair_strength, pair.potential_passenger_demand.base());
+	}
+	if (printed == 0) IConsolePrint(CC_DEFAULT, "  none");
+	return true;
+}
+
 static bool ConDumpGrfCargoTables(std::span<std::string_view> argv)
 {
 	if (argv.empty()) {
@@ -4746,6 +4826,7 @@ void IConsoleStdLibRegister()
 	IConsole::CmdRegister("dump_vehicle",            ConDumpVehicle,      nullptr, true);
 	IConsole::CmdRegister("dump_tile",               ConDumpTile,         nullptr, true);
 	IConsole::CmdRegister("dump_land_value",         ConDumpLandValue,    nullptr, true);
+	IConsole::CmdRegister("dump_intercity_economy", ConDumpIntercityEconomy, nullptr, true);
 	IConsole::CmdRegister("dump_grf_cargo_tables",   ConDumpGrfCargoTables, nullptr, true);
 	IConsole::CmdRegister("dump_signal_styles",      ConDumpSignalStyles, nullptr, true);
 	IConsole::CmdRegister("dump_sprite_cache_stats", ConSpriteCacheStats, nullptr, true);

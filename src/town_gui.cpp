@@ -661,6 +661,8 @@ public:
 		draw_development_demand(STR_TOWN_VIEW_COMMERCIAL_DEVELOPMENT_DEMAND, development.commercial_demand);
 		draw_development_demand(STR_TOWN_VIEW_INDUSTRIAL_DEVELOPMENT_DEMAND, development.industrial_demand);
 		draw_development_demand(STR_TOWN_VIEW_LAND_AFFORDABILITY, development.affordability);
+		DrawString(tr, GetString(STR_TOWN_VIEW_ECONOMIC_MASS, GetTownEconomicMass(this->town).base()));
+		tr.top += GetCharacterHeight(FontSize::Normal);
 
 		StringID str_last_period;
 		if (EconTime::UsingWallclockUnits()) {
@@ -808,7 +810,7 @@ public:
 	 */
 	uint GetDesiredInfoHeight(int width) const
 	{
-		uint aimed_height = static_cast<uint>(13 + CountBits(CargoSpec::town_production_cargo_mask[TownProductionEffect::Passengers] | CargoSpec::town_production_cargo_mask[TownProductionEffect::Mail])) * GetCharacterHeight(FontSize::Normal);
+		uint aimed_height = static_cast<uint>(14 + CountBits(CargoSpec::town_production_cargo_mask[TownProductionEffect::Passengers] | CargoSpec::town_production_cargo_mask[TownProductionEffect::Mail])) * GetCharacterHeight(FontSize::Normal);
 
 		bool first = true;
 		for (TownAcceptanceEffect i = TownAcceptanceEffect::Begin; i < TownAcceptanceEffect::End; i++) {

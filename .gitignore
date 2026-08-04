@@ -1,10 +1,20 @@
-/.vs
-/.vscode
-/build*
-CMakeSettings.json
-docs/aidocs/*
-docs/gamedocs/*
-docs/source/*
-/out
-/vcpkg_installed
-*.tmp
+# Build files
+build-msvc18-x64/
+
+# Release package
+OpenTTD-HankPP-0.9-beta1-win64/
+*.zip
+
+# VS
+.vs/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+
+# vcpkg
+vcpkg_installed/
+
+# Release
+*.zip
+*.exe

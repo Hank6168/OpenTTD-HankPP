@@ -4,135 +4,126 @@
 ![Base](https://img.shields.io/badge/base-OpenTTD%20JGRPP%200.73.0-green)
 ![License](https://img.shields.io/badge/license-GPL--2.0-orange)
 
-## 中文简介
+## 简介
 
-OpenTTD-HankPP 是基于 **OpenTTD JGRPP 0.73.0** 开发的增强版本。
+本项目是基于 **OpenTTD-JGRPP** 开发的偏中式扩展版本。
 
-本项目致力于在保持 OpenTTD 核心运输经营玩法的基础上，引入更加深入的：
+主要面向中式运输与铁路建设玩法，在保留 JGRPP 原有玩法的基础上，
+进一步扩展：
 
 - 城市发展模拟
 - 土地价值系统
-- 区域经济模型
-- 铁路运营扩展
+- 建筑实际人口
+- 住宅入住率
+- 城际经济联系与客流
+- 铁路运营相关机制
+- 中式车站信息显示
 
-为未来构建更加真实的城市—交通—经济综合模拟体系提供基础框架。
+长期目标是在 JGRPP 原有基础上，
+逐步形成一个更符合 **中国铁路与本土化玩法** 的游戏环境，
+遇到任何问题，欢迎通过 Issue 或项目开发交流群反馈:
+HankPP 开发交流群：1074303090
 
+# 主要功能
 
-## English Introduction
+## 🏙 城市与土地价值
 
-OpenTTD-HankPP is an enhanced development branch based on **OpenTTD JGRPP 0.73.0**.
+HankPP 加入了独立的城市土地价值体系，
+为后续城市发展及相关经济机制提供基础。
 
-The project aims to extend the original OpenTTD gameplay with advanced simulation systems, including:
+目前包括：
 
-- Urban development simulation
-- Land value system
-- Regional economic modeling
-- Railway operation extensions
+- 城市土地价值评分
+- 基于距离的地价衰减
+- 土地价值缓存机制
+- 月度土地价值更新
+- 土地价值相关经济影响
+- 城市内部区域地价差异
 
-The goal is to build a more realistic city-transportation-economic simulation environment.
-
-
-# Features / 主要功能
-
-## 🏙 Land Value System / 土地价值系统
-
-Implemented:
-
-- Town land value score system
-- Distance-based land value calculation
-- Land value cache mechanism
-- Monthly land value update loop
-- Land value related economic effects
+后续也会与城市发展、人口，建筑及交通条件等机制进行联动。
 
 
-## 🏘 Urban Development Model / 城市发展模型
+## 🏘 建筑与人口
 
-Implemented:
+对原建筑容量进行扩展，使建筑规模与实际居住人口之间具有更合理的关系。
 
-- Town development demand calculation
-- Housing density adjustment
-- Regional development influence
-- Urban growth simulation framework
+目前包括：
 
-
-## 🌐 Intercity Economic Gravity / 城市经济联系
-
-Implemented:
-
-- Economic interaction between towns
-- Population influence
-- Development level influence
-- Distance attenuation model
-
-# Compatibility / 兼容性
-
-## Windows
-
-Currently tested:
-
-✅ Windows x64
+- 建筑实际人口计算
+- 住宅入住率
+- 不同建筑类型的人口差异
+- 城市实际人口统计
+- 住宅与其他建筑识别
 
 
-Build environment:
+## 🌆 城市发展模型
 
-OS:
-Windows 10/11 x64
+在原有城市增长机制上进一步加入发展需求、住宅密度及区域发展等因素。
 
-Compiler:
-MSVC 19.51
+目前包括：
 
-Build System:
-CMake
+- 城市发展需求计算
+- 住宅密度调整
+- 区域发展影响
+- 城市增长模拟
+- 城市规模与发展水平联动
 
-Language:
-C++20
+## 🌐 城际经济与客流联系
 
+尝试建立经济发达地区之间的长途出行需求。
 
+目前考虑方面：
 
+- 城市人口
+- 城市发展水平
+- 城市间距离
+- 距离衰减
+- 城际经济联系
+- 城际走廊
+- 城际客流需求
 
-## Other Platforms
-
-Other platforms have not been fully tested.
-
-Currently not guaranteed:
-
-- Linux
-- macOS
-- ARM platforms
-
-
-Although OpenTTD/JGRPP supports multiple platforms, HankPP development and testing are currently focused on Windows x64.
-
-Successful compilation and operation on other platforms cannot be guaranteed at this stage.
-
-Community testing and feedback are welcome.
+想法是使人口规模较大、发展程度较高，
+且距离较为合理的城市之间形成更加明显的城际联系与客流走廊，类似京沪高铁。
 
 
-# Save Compatibility / 存档兼容性
+## 🚄 铁路运营扩展
 
-Due to internal data structure changes:
+目前及后续方向包括：
 
-- Vanilla OpenTTD saves are not guaranteed to be compatible.
-- Unmodified JGRPP saves are not guaranteed to be compatible.
+- 线路运营信息
+- 列车运行相关数据
+- 城际运输走廊
+- 线路开通与运营历史
+- 客流观测与运输反馈
+- 中式铁路运营相关功能
 
-Please backup your save files before upgrading.
+## 中式本土化扩展
+
+逐步将国内相关内容加入至游戏当中。
+
+包括：
+
+- 中文界面与信息显示优化
+- 中式车站大屏
+- 更贴近国内铁路的车次显示
 
 
-# Roadmap / 开发计划
-
-## Future Development
-
-Planned features:
-
-- Advanced urban simulation
-- Railway operation system
-- Chinese railway related features
-- Station information display system
-- Transportation-oriented development (TOD)
+# 💻 开发平台
+| 平台 | 当前状态 |
+| --- | --- |
+| Windows x64 | ✅ 主要开发平台 |
+| Linux | 测试仍不全面 |
+| macOS | 敬请期待 |
+| ARM | 敬请期待 |
+| Android | 敬请期待 |
 
 
-# License / 许可证
+# 📜 许可证 / License
 
-OpenTTD-HankPP is released under the GNU General Public License v2.0 (GPL-2.0).
+OpenTTD-HankPP 基于 OpenTTD-JGRPP 开发，并遵循其开源许可要求。
 
-The project follows the licensing model of OpenTTD/JGRPP.
+本项目采用：
+
+**GNU General Public License v2.0 (GPL-2.0)**
+
+有关完整许可内容，请参阅项目中的 `COPYING.md` / `LICENSE` 文件。

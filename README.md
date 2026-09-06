@@ -1,7 +1,7 @@
 # OpenTTD-HankPP
 
-![Version](https://img.shields.io/badge/version-v0.9--beta1-blue)
-![Base](https://img.shields.io/badge/base-OpenTTD%20JGRPP%200.73.0-green)
+![Version](https://img.shields.io/badge/version-v0.9--beta2-blue)
+![Base](https://img.shields.io/badge/base-OpenTTD%20JGRPP%200.73.1-green)
 ![License](https://img.shields.io/badge/license-GPL--2.0-orange)
 
 ## 简介

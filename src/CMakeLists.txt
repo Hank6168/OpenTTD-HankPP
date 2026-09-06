@@ -116,6 +116,7 @@ add_files(
     command_table.cpp
     command_table.h
     command_type.h
+    command_type_fwd_declare.h
     company_base.h
     company_cmd.cpp
     company_cmd.h
@@ -293,6 +294,7 @@ add_files(
     misc_gui.cpp
     mixer.cpp
     mixer.h
+    money_type.h
     music.cpp
     music_gui.cpp
     newgrf.cpp
@@ -432,6 +434,7 @@ add_files(
     rail_gui.h
     rail_gui_type.h
     rail_map.h
+    rail_settings.h
     rail_type.h
     random_access_file.cpp
     random_access_file_type.h
@@ -444,6 +447,7 @@ add_files(
     road_gui.cpp
     road_gui.h
     road_internal.h
+    road_layout_func.h
     road_map.cpp
     road_map.h
     road_type.h
@@ -466,6 +470,7 @@ add_files(
     scope_info.h
     screenshot_type.h
     screenshot_pcx.cpp
+    session_stats.h
     settingentry_gui.cpp
     settingentry_gui.h
     settings.cpp
@@ -545,6 +550,7 @@ add_files(
     stringfilter_type.h
     strings.cpp
     strings_func.h
+    strings_id_type.h
     strings_internal.h
     strings_type.h
     strings_type_trait.h
@@ -579,12 +585,16 @@ add_files(
     textfile_gui.cpp
     textfile_gui.h
     textfile_type.h
+    time_chrono.h
+    time_type.h
     tgp.cpp
     tgp.h
     thread.h
     tile_cmd.h
     tile_map.cpp
     tile_map.h
+    tile_map_extra.h
+    tile_track_func.h
     tile_type.h
     tilearea.cpp
     tilearea_type.h
@@ -617,6 +627,7 @@ add_files(
     train_cmd.cpp
     train_cmd.h
     train_gui.cpp
+    train_settings.h
     train_speed_adaptation.h
     transparency.h
     transparency_gui.cpp

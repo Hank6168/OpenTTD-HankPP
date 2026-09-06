@@ -24,6 +24,7 @@
 #include "../map_func.h"
 #include "../newgrf_object.h"
 #include "../newgrf_house.h"
+#include "../object_base.h"
 #include "../object_cmd.h"
 #include "../object_type.h"
 #include "../openttd.h"
@@ -546,6 +547,74 @@ TEST_CASE("LandscapeClear injects one deterministic land surcharge into real Com
 	_company_pool.CleanPool();
 	_town_pool.CleanPool();
 	RebuildTownKdtree();
+}
+
+TEST_CASE("LandscapeClear does not charge land surcharge for an already logically cleared tile")
+{
+	ResetLandValueTestWorld();
+	_price[Price::ClearGrass] = 100;
+	_price[Price::ClearRough] = 120;
+
+	const TileIndex first_tile = TileXY(9, 10);
+	const TileIndex tile = TileXY(10, 10);
+
+	MakeClear(first_tile, ClearGround::Rough, 3);
+	MakeClear(tile, ClearGround::Rough, 3);
+
+	Town *town = CreateLandValueTestTown(10, 10);
+	town->land_value_score = 500;
+	RebuildLandValueCache(town);
+
+	_company_pool.CleanPool();
+	REQUIRE(Company::CanAllocateItem());
+
+	Company *company = Company::Create();
+	company->money = Money::max();
+	company->clear_limit = UINT32_MAX;
+
+	const auto old_current_company = _current_company;
+	const GameMode old_game_mode = _game_mode;
+	const bool old_generating_world = _generating_world;
+
+	auto cleanup = scope_guard([&]() {
+		_cleared_object_areas.clear();
+		_current_company = old_current_company;
+		_game_mode = old_game_mode;
+		_generating_world = old_generating_world;
+		_company_pool.CleanPool();
+		_town_pool.CleanPool();
+		RebuildTownKdtree();
+	});
+
+	_current_company = company->index;
+	_game_mode = GameMode::Normal;
+	_generating_world = false;
+
+	REQUIRE(IsLandPurchaseClearRequired(tile));
+
+	/*
+	 * Simulate a nested command where clearing first_tile has already
+	 * logically removed the object covering tile. During a test run the
+	 * physical tile can remain unchanged, but LandscapeClear must not charge
+	 * either the clear cost or the land-value surcharge again.
+	 */
+	_cleared_object_areas.clear();
+	_cleared_object_areas.push_back({
+		first_tile,
+		TileArea(first_tile, 2, 1),
+	});
+
+	const ClearedObjectArea *coa = FindClearedObject(tile);
+	REQUIRE(coa != nullptr);
+	CHECK(coa->first_tile == first_tile);
+
+	const CommandCost query = CmdLandscapeClear(DoCommandFlag::QueryCost, tile);
+
+	REQUIRE(query.Succeeded());
+	CHECK(query.GetCost() == 0);
+
+	/* The physical tile was intentionally not changed by this logical clear. */
+	CHECK(IsLandPurchaseClearRequired(tile));
 }
 
 TEST_CASE("Purchase land charges bare and occupied tiles once through the shared surcharge")

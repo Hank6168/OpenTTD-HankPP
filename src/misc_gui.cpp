@@ -37,6 +37,7 @@
 #include "viewport_type.h"
 #include "guitimer_func.h"
 #include "viewport_func.h"
+#include "tile_cmd.h"
 #include "rev.h"
 #include "core/backup_type.hpp"
 #include "pathfinder/water_regions.h"

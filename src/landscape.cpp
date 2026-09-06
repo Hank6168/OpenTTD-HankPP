@@ -37,6 +37,7 @@
 #include "pathfinder/aystar.h"
 #include "sl/saveload.h"
 #include "framerate_type.h"
+#include "tile_cmd.h"
 #include "town.h"
 #include "terraform_cmd.h"
 #include "scope_info.h"
@@ -614,7 +615,6 @@ void ClearSnowLine()
 CommandCost CmdLandscapeClear(DoCommandFlags flags, TileIndex tile)
 {
 	CommandCost cost(ExpensesType::Construction);
-	const bool land_purchase_clear_required = IsLandPurchaseClearRequired(tile);
 	bool do_clear = false;
 	/* Test for stuff which results in water when cleared. Then add the cost to also clear the water. */
 	if (flags.Test(DoCommandFlag::ForceClearTile) && HasTileWaterClass(tile) && IsTileOnWater(tile) && !IsWaterTile(tile) && !IsCoastTile(tile)) {
@@ -638,6 +638,18 @@ CommandCost CmdLandscapeClear(DoCommandFlags flags, TileIndex tile)
 	if (flags.Test(DoCommandFlag::Town) && !MayTownModifyRoad(tile)) return CMD_ERROR;
 
 	const ClearedObjectArea *coa = FindClearedObject(tile);
+	Money land_value_surcharge = 0;
+
+	/*
+	 * Respect OpenTTD's logical clear tracking. A tile which has already been
+	 * cleared as part of the same command chain must not be charged the land
+	 * purchase surcharge again. Calculate the surcharge before clear_tile_proc
+	 * can mutate the tile so Test and Execute observe the same pre-clear state.
+	 */
+	if ((coa == nullptr || coa->first_tile == tile) && IsLandPurchaseClearRequired(tile)) {
+		land_value_surcharge =
+				GetLandPurchaseCostBreakdown(tile, 0, flags, true).land_value_surcharge;
+	}
 
 	/* If this tile was the first tile which caused object destruction, always
 	 * pass it on to the tile_type_proc. That way multiple test runs and the exec run stay consistent. */
@@ -655,8 +667,7 @@ CommandCost CmdLandscapeClear(DoCommandFlags flags, TileIndex tile)
 	}
 	if (cost.Failed()) return cost;
 
-	const LandPurchaseCostBreakdown land_purchase = GetLandPurchaseCostBreakdown(tile, cost.GetCost(), flags, land_purchase_clear_required);
-	cost.AddCost(land_purchase.land_value_surcharge);
+	cost.AddCost(land_value_surcharge);
 
 	if (flags.Test(DoCommandFlag::Execute)) {
 		if (c != nullptr) c->clear_limit -= 1 << 16;
@@ -1439,7 +1450,8 @@ static bool FlowRiver(TileIndex spring, TileIndex begin, uint min_river_length)
 
 		int height_end;
 		if (IsTileFlat(end, &height_end) && (height_end < static_cast<int>(height_begin) || (height_end == static_cast<int>(height_begin) && IsWaterTile(end)))) {
-			if (IsWaterTile(end) && GetWaterClass(end) == WaterClass::Sea) {
+			/* We don't want rivers to flow into tiny bits of sea, so we fill them, unless using the original land generator. */
+			if (_settings_game.game_creation.land_generator != LG_ORIGINAL && IsWaterTile(end) && GetWaterClass(end) == WaterClass::Sea) {
 				/* If we've found the sea, make sure it's large enough. Scale by the map size but set a cap to avoid performance issues on large maps. */
 				const uint MAX_SEA_SIZE_THRESHOLD = 1024;
 				const uint SEA_SIZE_THRESHOLD = std::min(static_cast<uint>(2 * std::sqrt(Map::SizeX() * Map::SizeY())), MAX_SEA_SIZE_THRESHOLD);
@@ -1458,7 +1470,7 @@ static bool FlowRiver(TileIndex spring, TileIndex begin, uint min_river_length)
 					}
 				}
 			} else {
-				/* We've found a river. */
+				/* We've found a river, or a sea if using the original land generator. */
 				found = true;
 				break;
 			}

@@ -1,157 +1,123 @@
-# HankPP Changelog
+# HankPP 更新日志
 
-# HankPP 0.9-beta1
+## HankPP v0.9-beta2
 
-Release status:
+**发布状态：** Beta 测试版  
+**开发基线：** JGRPP 0.73.1
 
-Beta Release
+### 版本概述
 
-Based on:
+本版本升级至JGRPP-0.73.1
 
-JGRPP 0.73.0
+### 主要变化
 
+- 开发基线升级至 JGRPP 0.73.1
+- 合并 JGRPP 0.73.1 上游改动
 
----
+### 兼容性说明
 
-# Overview
-
-HankPP 0.9-beta1 is the first public beta release of HankPP.
-
-This version introduces a complete land value and urban economic simulation framework based on JGRPP.
-
-The goal is to improve OpenTTD's city development simulation by introducing:
-
-- Dynamic land value
-- Urban development demand
-- Infrastructure economic influence
-- Intercity economic interaction
-
+- HankPP 0.9-beta2 基于 JGRPP 0.73.1 开发
+- HankPP 0.9-beta1 基于 JGRPP 0.73.0 开发
+- 建议使用 HankPP 加载由 HankPP 创建的存档
 
 ---
 
-# Features
+## HankPP v0.9-beta1
 
+**发布状态：** Beta 测试版  
+**开发基线：** JGRPP 0.73.0
 
-## Patch 001 - Land Value Core
+### 版本概述
 
-Added:
+HankPP 0.9-beta1 是 HankPP 的首个公开测试版本。
 
-- Town land value score system
-- Fixed-point land value calculation
-- Distance attenuation model
-- Land value query interface
+本版本在 JGRPP 基础上建立了一套面向城市发展与区域经济模拟的扩展框架，重点引入地价、城市发展需求、基础设施经济影响以及城际经济联系等机制。
 
+主要目标包括：
 
-## Patch 002 - Town Persistence
+- 动态地价模拟
+- 城市发展需求评估
+- 基础设施经济影响
+- 城际经济联系与引力机制
 
-Added:
+### 功能内容
 
-- Persistent town land value score
-- Save/load support
-- Legacy save initialization
+#### Patch 001 —— 地价核心
 
+新增：
 
-## Patch 003 - Land Value Cache
+- 城市地价分值系统
+- 定点数地价计算
+- 距离衰减模型
+- 地价查询接口
 
-Added:
+#### Patch 002 —— 城市数据持久化
 
-- Town land value cache
-- Monthly land value update
-- Stable ranking system
+新增：
 
+- 城市地价分值持久化
+- 存档与读档支持
+- 旧存档初始化兼容
 
-## Patch 004 - Settings and GUI
+#### Patch 003 —— 地价缓存与月度更新
 
-Added:
+新增：
 
-- Land value settings
-- Land value display
-- Debug command support
+- 城市地价缓存
+- 月度地价更新机制
+- 稳定排名系统
 
+#### Patch 004 —— 设置、界面与调试
 
-## Patch 005 - Land Purchase Cost
+新增：
 
-Added:
+- 地价相关设置
+- 地价信息显示
+- 调试命令支持
 
-- Land value influence on land purchase
-- Additional land acquisition cost
+#### Patch 005 —— 土地购买成本
 
+新增：
 
-## Patch 006 - Infrastructure Cost
+- 地价对土地购买成本的影响
+- 额外土地取得成本
 
-Added:
+#### Patch 006 —— 基础设施成本
 
-- Land value influence on infrastructure construction
-- Railway, road and station economic influence
+新增：
 
+- 地价对基础设施建设成本的影响
+- 铁路、公路及车站建设的经济影响
 
-## Patch 007 - Town Development Demand
+#### Patch 007 —— 城市发展需求
 
-Added:
+新增：
 
-- Residential demand evaluation
-- Commercial/industrial demand framework
-- Town development indicators
+- 住宅发展需求评估
+- 商业与工业需求框架
+- 城市发展指标
 
+#### Patch 008 —— 土地利用与建筑密度
 
-## Patch 008 - Land Use and House Density
+新增：
 
-Added:
+- 地价对建筑密度选择的影响
+- 城市土地利用调整机制
 
-- Land value influence on house density selection
-- Urban land-use adjustment
+#### Patch 009 —— 城际经济引力
 
+新增：
 
-## Patch 009 - Intercity Economic Gravity
+- 主要城市之间的经济联系计算
+- 城际需求评估
+- 经济引力排名
 
-Added:
+### 已知限制
 
-- Economic relationship calculation between major towns
-- Intercity demand evaluation
-- Economic gravity ranking
+以下系统在 0.9-beta1 阶段尚未完成深入改造：
 
-
----
-
-# Compatibility
-
-HankPP is based on JGRPP 0.73.0.
-
-Save games created by HankPP should be loaded with HankPP.
-
-
-Compatibility with vanilla OpenTTD is not guaranteed.
-
-
----
-
-# Known Limitations
-
-The following systems are not yet modified:
-
-- Actual passenger generation
-- CargoDist economic flow
-- Industry relocation
-- Airport and port economic influence
-- Advanced regional planning
-
-
----
-
-# Future Development
-
-Possible future versions may include:
-
-- Better passenger demand simulation
-- Transport corridor effects
-- Regional economic networks
-- More detailed city development models
-
-
----
-
-# Credits
-
-See:
-
-HankPP-CREDITS.md
+- 实际旅客生成机制
+- CargoDist 经济流动机制
+- 工业迁移机制
+- 机场与港口经济影响
+- 更高级的区域规划机制

@@ -1,147 +1,158 @@
 # OpenTTD-HankPP
 
+**English** | [简体中文](README_zh-CN.md)
+
 ![Version](https://img.shields.io/badge/version-v0.9--beta2-blue)
 ![Base](https://img.shields.io/badge/base-OpenTTD%20JGRPP%200.73.1-green)
 ![License](https://img.shields.io/badge/license-GPL--2.0-orange)
 
-## 简介
+> **Current public release:** v0.9-beta2  
+>
+> **Feature status:**
+> - **[v0.9]** — Available in the current v0.9 public release series.
+> - **[v1.0-ready]** — Core development is complete; release is pending the remaining v1.0 work and release validation.
+> - **[v1.0-dev]** — In development for v1.0; not necessarily available in public builds.
+> - **[v1.0+]** — A long-term feature area to be expanded from v1.0 onward.
+> - **[v0.9 → v1.0-ready]** — Builds on existing v0.9 functionality, with v1.0 enhancements substantially complete and awaiting release.
 
-本项目是基于 **OpenTTD-JGRPP** 开发的偏中式扩展版本。
+## Introduction
 
-主要面向于中式运输与铁路建设玩法，在保留 JGRPP 绝大多数玩法的基础上，
-进一步扩展了：
+This project is a China-oriented extension based on **OpenTTD-JGRPP**.
 
-- 城市发展模拟
-- 土地价值系统
-- 建筑实际人口
-- 住宅入住率
-- 城际经济联系与客流
-- 铁路运营相关机制
-- 中式列车运行交路
+It focuses on Chinese-style transport and railway construction gameplay. While retaining most of JGRPP's gameplay features,
+it further expands upon:
 
-目标是在 JGRPP 原有的基础上，
-逐步打造一个更接近 **中国铁路与本土化玩法** 的游戏，
+- Urban development simulation
+- Land value system
+- Actual building population
+- Residential occupancy rates
+- Intercity economic connections and passenger flows
+- Railway operation mechanisms
+- Chinese-style train operations and trainset rotations
 
-如遇到任何问题，欢迎通过 Issue 或项目开发交流群反馈：
+The goal is to build upon JGRPP
+and gradually create a game that more closely reflects **Chinese railways and localized gameplay**.
 
-HankPP 开发交流群：1074303090
+If you encounter any issues, feel free to report them through GitHub Issues or the project development group:
 
-# 主要功能
+HankPP Development Group: 1074303090
 
-## 城市与土地价值
+# Main Features
 
-HankPP 加入了独立的城市地价体系，
-为后续城市发展及相关经济机制拓展提供了基础。
+## Cities and Land Value [v0.9]
 
-目前包括：
+HankPP introduces an independent urban land value system,
+laying the foundation for future extensions to urban development and related economic mechanisms.
 
-- 城市地价评分
-- 基于多方面考量的地价
-- 月度地价更新
-- 地价引起的经济影响
+Available in the current release:
 
-后续也会与城市发展、人口，建筑及交通条件等机制进行联动。
+- Urban land value scoring
+- Land value based on multiple factors
+- Monthly land value updates
+- Economic effects driven by land value
 
-
-## 建筑与人口
-
-HankPP 对原版及部分GRF建筑的容量进行扩展，使建筑规模与居住人口实现更合理的关系。
-
-目前包括：
-
-- 建筑实际人口计算
-- 住宅入住率
-- 城市实际人口统计
-- 识别建筑,商业与工业建筑等
+In the future, this system will also interact with urban development, population, buildings, transport conditions, and other mechanisms.
 
 
-##  城市发展优化
+## Buildings and Population [v1.0-ready]
 
-在原城市增长机制上进一步加入了发展需求、住宅密度及区域发展等因素。
+HankPP expands the capacity of vanilla buildings and certain GRF buildings, establishing a more realistic relationship between building size and residential population.
 
-目前包括：
+Implemented features (awaiting the v1.0 release):
 
-- 城市发展需求计算
-- 住宅密度调整
-- 区域发展影响
-- 城市增长模拟
-
-##  经济与客流
-
-HankPP 尝试建立距离较远的发达地区之间的出行需求。
-
-目前考虑：
-
-- 城市人口
-- 城市发展水平
-- 城市间距离
-- 城际走廊
-- 城际需求
-
-本版本的想法是使人口较多、发展较高,且距离较合理的城市之间
-形成更加明显的通道关系与经济走廊，类似京沪高铁。
+- Actual building population calculation
+- Residential occupancy rates
+- Actual city population statistics
+- Identification of residential, commercial, industrial, and other building types
 
 
-##  数据与统计
+##  Urban Development Optimization [v0.9 → v1.0-ready]
 
-目前包括：
+The original city growth mechanics are extended to account for development demand, residential density, regional development, and other factors.
 
-- 列车运营相关数据
-- 线路开通与运营历史
-- 客流观测与运输反馈
-- 城市间的需求统计
+Existing features and v1.0-ready enhancements:
 
+- Urban development demand calculation
+- Residential density adjustment
+- Regional development effects
+- Urban growth simulation
 
-##  接触网与基础设施
+##  Economy and Passenger Demand [v1.0-ready]
 
-目前包括：
+HankPP aims to model travel demand between relatively distant, developed regions.
 
-- 中式化的立柱、门架和接触线
-- 自动化接触网铺设与智能分组
-- 单线、复线及多股道门架系统
-- 车站、道岔、咽喉和终端区专用布置
-- 可精细调整搭配自动化
-- 不同类型的铁路/建设时期的接触网差异
+The model primarily considers:
 
+- City population
+- City development level
+- Distance between cities
+- Intercity corridors
+- Intercity demand
 
-##  车次与车底交路
-
-目前包括：
-
-- 独立于列车的交路与车次身份
-- 临时换车、热备车与故障替班
-- 备用车底、候选车辆
-- 交路冲突与列车状态判断
-- 发车信息与车底计划联动
-- 多人联机下的交路同步、存档与恢复
-
-## 中式本土化扩展
-
-逐步添加中式内容至游中。
-
-包括：
-
-- 完全汉化的界面与显示内容的优化
-- 中式车站大屏
+The aim is for cities with larger populations, higher development levels, and reasonable distances between them
+to form more prominent transport links and economic corridors, similar to the Beijing–Shanghai corridor.
 
 
-# 💻 开发平台
-| 平台 | 当前状态 |
+##  Data and Statistics [v1.0-dev]
+
+Feature scope under development (some foundations are already implemented):
+
+- Train operations data
+- Line opening and operating history
+- Passenger flow observations and transport feedback
+- Intercity demand statistics
+
+
+##  Catenary and Infrastructure [v1.0-ready]
+
+Implemented features (awaiting the v1.0 release):
+
+- Chinese-style masts, portal structures, and contact wires
+- Automated catenary placement and intelligent grouping
+- Single-track, double-track, and multi-track portal systems
+- Dedicated layouts for stations, turnouts, station throats, and terminal areas
+- Automated placement and fine-grained manual adjustment
+- Catenary style variations for different railway types and construction periods
+
+
+##  Train Services and Trainset Rotations [v1.0-dev]
+
+Feature scope under development (some foundations are already implemented):
+
+- Rotation and train service identities independent of physical trains
+- Temporary trainset substitution, hot-spare trainsets, and breakdown replacements
+- Reserve trainsets and candidate vehicles
+- Rotation conflict and train status evaluation
+- Integration of departure information with trainset plans
+- Rotation synchronization, save/load, and recovery in multiplayer games
+
+## Chinese Localization Extensions [v1.0+]
+
+Chinese-style content is gradually being added to the game.
+
+Continuing expansion includes:
+
+- A fully localized Chinese interface and improved on-screen information
+- Chinese-style station information boards
+
+
+# 💻 Development Platforms
+| Platform | Current Status |
 | --- | --- |
-| Windows x64 | ✅ 最新版 |
-| Windows 32 | 敬请期待 |
-| Linux | ✅ 最新版 |
-| macOS | 敬请期待 |
-| ARM | 敬请期待 |
-| Android | 敬请期待 |
+| Windows x64 | ✅ Latest Version |
+| Windows x86 | Coming Soon |
+| Linux | ✅ Latest Version |
+| macOS | Coming Soon |
+| ARM | Coming Soon |
+| Android | Coming Soon |
 
 
-# 📜 许可证 / License
+# 📜 License
 
-OpenTTD-HankPP 基于 OpenTTD-JGRPP 开发，并遵循其开源许可要求。
+OpenTTD-HankPP is developed based on OpenTTD-JGRPP and complies with its open-source licensing requirements.
 
-本项目采用：
+This project is licensed under:
 
 **GNU General Public License v2.0 (GPL-2.0)**
 
-有关完整许可内容，请参阅项目中的 `COPYING.md` / `LICENSE` 文件。
+For the full license text, please refer to the `COPYING.md` / `LICENSE` files in the project.
